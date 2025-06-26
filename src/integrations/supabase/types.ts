@@ -9,7 +9,103 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      peer_tables: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      table_data: {
+        Row: {
+          column_index: number
+          id: string
+          last_modified_at: string
+          last_modified_by: string | null
+          row_index: number
+          table_id: string
+          value: string | null
+          version: number
+        }
+        Insert: {
+          column_index: number
+          id?: string
+          last_modified_at?: string
+          last_modified_by?: string | null
+          row_index: number
+          table_id: string
+          value?: string | null
+          version?: number
+        }
+        Update: {
+          column_index?: number
+          id?: string
+          last_modified_at?: string
+          last_modified_by?: string | null
+          row_index?: number
+          table_id?: string
+          value?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "table_data_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "peer_tables"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      table_users: {
+        Row: {
+          cursor_position: Json | null
+          id: string
+          last_seen: string
+          table_id: string
+          user_id: string
+        }
+        Insert: {
+          cursor_position?: Json | null
+          id?: string
+          last_seen?: string
+          table_id: string
+          user_id: string
+        }
+        Update: {
+          cursor_position?: Json | null
+          id?: string
+          last_seen?: string
+          table_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "table_users_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "peer_tables"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
