@@ -222,9 +222,10 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       
       console.log('Starting sync of pending changes:', Object.keys(pendingChanges).length);
       
+      // Process each pending change sequentially to avoid conflicts
       for (const [key, cell] of Object.entries(pendingChanges)) {
         try {
-          // First check if the record already exists
+          // Use the same logic as updateCell for consistency
           const { data: existingData, error: checkError } = await supabase
             .from('table_data')
             .select('id, version')
@@ -237,9 +238,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
             throw checkError;
           }
 
-          let upsertError;
+          let syncError;
           if (existingData) {
-            // Record exists, update it
+            // Record exists, update it with proper version handling
             const { error } = await supabase
               .from('table_data')
               .update({
@@ -249,7 +250,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                 last_modified_at: new Date().toISOString(),
               })
               .eq('id', existingData.id);
-            upsertError = error;
+            syncError = error;
           } else {
             // Record doesn't exist, insert it
             const { error } = await supabase
@@ -262,32 +263,52 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                 last_modified_by: user?.id,
                 version: cell.version,
               });
-            upsertError = error;
+            syncError = error;
           }
 
-          if (upsertError) {
-            console.error('Error syncing cell:', key, upsertError);
-            remainingPendingChanges[key] = cell;
-            failedCount++;
+          if (syncError) {
+            console.error('Error syncing cell:', key, syncError);
+            // Only keep as pending if it's not a duplicate key error
+            if (!syncError.message?.includes('duplicate key')) {
+              remainingPendingChanges[key] = cell;
+              failedCount++;
+            } else {
+              // For duplicate key errors, consider it synced (data is already there)
+              console.log('Cell already synced (duplicate key):', key);
+              syncedCount++;
+            }
           } else {
             console.log('Successfully synced cell:', key);
             syncedCount++;
           }
-        } catch (error) {
+          
+          // Add small delay between operations to prevent overwhelming the database
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+        } catch (error: any) {
           console.error('Exception syncing cell:', key, error);
-          remainingPendingChanges[key] = cell;
-          failedCount++;
+          // Don't keep retrying if it's a duplicate key constraint
+          if (!error.message?.includes('duplicate key')) {
+            remainingPendingChanges[key] = cell;
+            failedCount++;
+          } else {
+            console.log('Cell already exists (skipping):', key);
+            syncedCount++;
+          }
         }
       }
       
-      // Update pending changes with only the failed ones
+      // Update pending changes with only the truly failed ones
       setPendingChanges(remainingPendingChanges);
+      
+      // Update offline storage
       saveOfflineData({ 
         ...offlineData, 
         cells: cells,
         pendingChanges: remainingPendingChanges
       });
       
+      // Show appropriate toast messages
       if (failedCount === 0 && syncedCount > 0) {
         toast({ 
           title: "Changes synced", 
@@ -304,9 +325,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       setIsSyncing(false);
     };
 
-    // Add a small delay to prevent immediate retries
-    const timeoutId = setTimeout(syncPendingChanges, 1000);
-    return () => clearTimeout(timeoutId);
+    // Only sync when coming online and there are pending changes
+    if (isOnline && Object.keys(pendingChanges).length > 0) {
+      // Add a small delay to ensure connection is stable
+      const timeoutId = setTimeout(syncPendingChanges, 1000);
+      return () => clearTimeout(timeoutId);
+    }
   }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing]);
 
   // Set up real-time subscriptions
