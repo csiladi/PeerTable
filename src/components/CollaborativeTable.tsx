@@ -30,6 +30,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [cells, setCells] = useState<Record<string, TableCell>>({});
   const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [editingCell, setEditingCell] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
   const [pendingChanges, setPendingChanges] = useState<Record<string, TableCell>>({});
 
   // Initialize table with default size
@@ -114,6 +115,36 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     }
   };
 
+  // Handle cell editing start
+  const startEditing = (row: number, col: number) => {
+    const key = getCellKey(row, col);
+    const currentValue = cells[key]?.value || '';
+    setEditingCell(key);
+    setEditingValue(currentValue);
+  };
+
+  // Handle cell editing finish
+  const finishEditing = async () => {
+    if (!editingCell) return;
+    
+    const [row, col] = editingCell.split('-').map(Number);
+    const currentCellValue = cells[editingCell]?.value || '';
+    
+    // Only update if the value has actually changed
+    if (editingValue !== currentCellValue) {
+      await updateCell(row, col, editingValue);
+    }
+    
+    setEditingCell(null);
+    setEditingValue('');
+  };
+
+  // Handle escape key
+  const cancelEditing = () => {
+    setEditingCell(null);
+    setEditingValue('');
+  };
+
   // Sync pending changes when back online
   useEffect(() => {
     if (isOnline && Object.keys(pendingChanges).length > 0) {
@@ -160,8 +191,8 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
             const data = payload.new as Tables<'table_data'>;
             const key = getCellKey(data.row_index, data.column_index);
             
-            // Only update if it's not our own change
-            if (data.last_modified_by !== user?.id) {
+            // Only update if it's not our own change and we're not currently editing this cell
+            if (data.last_modified_by !== user?.id && editingCell !== key) {
               setCells(prev => ({
                 ...prev,
                 [key]: {
@@ -181,7 +212,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [tableId, user?.id, isOnline]);
+  }, [tableId, user?.id, isOnline, editingCell]);
 
   // Load initial data
   useEffect(() => {
@@ -252,33 +283,15 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                     <td key={colIndex} className={`border border-gray-300 p-0 ${isPending ? 'bg-yellow-50' : ''}`}>
                       {isEditing ? (
                         <Input
-                          value={cell?.value || ''}
-                          onChange={(e) => {
-                            const newKey = getCellKey(rowIndex, colIndex);
-                            setCells(prev => ({
-                              ...prev,
-                              [newKey]: {
-                                row: rowIndex,
-                                col: colIndex,
-                                value: e.target.value,
-                                version: (prev[newKey]?.version || 0) + 1,
-                                lastModifiedBy: user?.id,
-                              }
-                            }));
-                          }}
-                          onBlur={() => {
-                            setEditingCell(null);
-                            if (cell?.value !== (cells[key]?.value || '')) {
-                              updateCell(rowIndex, colIndex, cells[key]?.value || '');
-                            }
-                          }}
+                          value={editingValue}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          onBlur={finishEditing}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                              setEditingCell(null);
-                              updateCell(rowIndex, colIndex, cells[key]?.value || '');
+                              finishEditing();
                             }
                             if (e.key === 'Escape') {
-                              setEditingCell(null);
+                              cancelEditing();
                             }
                           }}
                           className="border-0 h-8 focus:ring-0"
@@ -287,7 +300,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                       ) : (
                         <div
                           className="min-h-8 p-2 cursor-pointer hover:bg-gray-50"
-                          onClick={() => setEditingCell(key)}
+                          onClick={() => startEditing(rowIndex, colIndex)}
                         >
                           {cell?.value || ''}
                         </div>
