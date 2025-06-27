@@ -182,24 +182,56 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       setIsSyncing(true);
       let syncedCount = 0;
       let failedCount = 0;
+      const remainingPendingChanges: Record<string, TableCell> = {};
       
       console.log('Starting sync of pending changes:', Object.keys(pendingChanges).length);
       
       for (const [key, cell] of Object.entries(pendingChanges)) {
         try {
-          const { error } = await supabase
+          // First check if the record already exists
+          const { data: existingData, error: checkError } = await supabase
             .from('table_data')
-            .upsert({
-              table_id: tableId,
-              row_index: cell.row,
-              column_index: cell.col,
-              value: cell.value,
-              last_modified_by: user?.id,
-              version: cell.version,
-            });
+            .select('id, version')
+            .eq('table_id', tableId)
+            .eq('row_index', cell.row)
+            .eq('column_index', cell.col)
+            .maybeSingle();
 
-          if (error) {
-            console.error('Error syncing cell:', key, error);
+          if (checkError && checkError.code !== 'PGRST116') {
+            throw checkError;
+          }
+
+          let upsertError;
+          if (existingData) {
+            // Record exists, update it
+            const { error } = await supabase
+              .from('table_data')
+              .update({
+                value: cell.value,
+                last_modified_by: user?.id,
+                version: Math.max(cell.version, existingData.version + 1),
+                last_modified_at: new Date().toISOString(),
+              })
+              .eq('id', existingData.id);
+            upsertError = error;
+          } else {
+            // Record doesn't exist, insert it
+            const { error } = await supabase
+              .from('table_data')
+              .insert({
+                table_id: tableId,
+                row_index: cell.row,
+                column_index: cell.col,
+                value: cell.value,
+                last_modified_by: user?.id,
+                version: cell.version,
+              });
+            upsertError = error;
+          }
+
+          if (upsertError) {
+            console.error('Error syncing cell:', key, upsertError);
+            remainingPendingChanges[key] = cell;
             failedCount++;
           } else {
             console.log('Successfully synced cell:', key);
@@ -207,26 +239,25 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           }
         } catch (error) {
           console.error('Exception syncing cell:', key, error);
+          remainingPendingChanges[key] = cell;
           failedCount++;
         }
       }
       
-      if (failedCount === 0) {
-        // All changes synced successfully, clear pending changes
-        setPendingChanges({});
-        saveOfflineData({ 
-          ...offlineData, 
-          cells: cells,
-          pendingChanges: {}
+      // Update pending changes with only the failed ones
+      setPendingChanges(remainingPendingChanges);
+      saveOfflineData({ 
+        ...offlineData, 
+        cells: cells,
+        pendingChanges: remainingPendingChanges
+      });
+      
+      if (failedCount === 0 && syncedCount > 0) {
+        toast({ 
+          title: "Changes synced", 
+          description: `${syncedCount} offline changes have been synced successfully` 
         });
-        
-        if (syncedCount > 0) {
-          toast({ 
-            title: "Changes synced", 
-            description: `${syncedCount} offline changes have been synced successfully` 
-          });
-        }
-      } else {
+      } else if (failedCount > 0) {
         toast({ 
           title: "Partial sync", 
           description: `${syncedCount} changes synced, ${failedCount} failed. Will retry.`,
@@ -237,7 +268,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       setIsSyncing(false);
     };
 
-    syncPendingChanges();
+    // Add a small delay to prevent immediate retries
+    const timeoutId = setTimeout(syncPendingChanges, 1000);
+    return () => clearTimeout(timeoutId);
   }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing]);
 
   // Set up real-time subscriptions
