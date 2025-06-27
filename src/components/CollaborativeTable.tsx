@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -93,25 +92,62 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     
     if (isOnline) {
       try {
-        const { error } = await supabase
+        // First check if the record already exists
+        const { data: existingData, error: checkError } = await supabase
           .from('table_data')
-          .upsert({
-            table_id: tableId,
-            row_index: row,
-            column_index: col,
-            value: value,
-            last_modified_by: user?.id,
-            version: newCell.version,
-          });
+          .select('id, version')
+          .eq('table_id', tableId)
+          .eq('row_index', row)
+          .eq('column_index', col)
+          .maybeSingle();
 
-        if (error) throw error;
+        if (checkError && checkError.code !== 'PGRST116') {
+          throw checkError;
+        }
+
+        let upsertError;
+        if (existingData) {
+          // Record exists, update it
+          const { error } = await supabase
+            .from('table_data')
+            .update({
+              value: value,
+              last_modified_by: user?.id,
+              version: Math.max(newCell.version, existingData.version + 1),
+              last_modified_at: new Date().toISOString(),
+            })
+            .eq('id', existingData.id);
+          upsertError = error;
+        } else {
+          // Record doesn't exist, insert it
+          const { error } = await supabase
+            .from('table_data')
+            .insert({
+              table_id: tableId,
+              row_index: row,
+              column_index: col,
+              value: value,
+              last_modified_by: user?.id,
+              version: newCell.version,
+            });
+          upsertError = error;
+        }
+
+        if (upsertError) {
+          throw upsertError;
+        }
+        
+        // Online update successful - remove from pending changes if it was there
+        const newPendingChanges = { ...pendingChanges };
+        delete newPendingChanges[key];
+        setPendingChanges(newPendingChanges);
         
         // Save to offline storage after successful online update
         const updatedCells = { ...cells, [key]: newCell };
         saveOfflineData({ 
           ...offlineData, 
           cells: updatedCells,
-          pendingChanges: { ...pendingChanges }
+          pendingChanges: newPendingChanges
         });
       } catch (error: any) {
         console.error('Error saving to Supabase:', error);
