@@ -32,6 +32,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const [pendingChanges, setPendingChanges] = useState<Record<string, TableCell>>({});
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Initialize table with default size
   const ROWS = 10;
@@ -42,7 +43,10 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   // Load data from Supabase
   const loadTableData = useCallback(async () => {
     if (!isOnline) {
-      setCells(offlineData.cells || {});
+      const savedCells = offlineData.cells || {};
+      const savedPending = offlineData.pendingChanges || {};
+      setCells(savedCells);
+      setPendingChanges(savedPending);
       return;
     }
 
@@ -87,10 +91,6 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     // Update local state immediately (optimistic update)
     setCells(prev => ({ ...prev, [key]: newCell }));
     
-    // Save to offline storage
-    const updatedCells = { ...cells, [key]: newCell };
-    saveOfflineData({ ...offlineData, cells: updatedCells });
-
     if (isOnline) {
       try {
         const { error } = await supabase
@@ -105,13 +105,42 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           });
 
         if (error) throw error;
+        
+        // Save to offline storage after successful online update
+        const updatedCells = { ...cells, [key]: newCell };
+        saveOfflineData({ 
+          ...offlineData, 
+          cells: updatedCells,
+          pendingChanges: { ...pendingChanges }
+        });
       } catch (error: any) {
+        console.error('Error saving to Supabase:', error);
         // If online update fails, store as pending change
-        setPendingChanges(prev => ({ ...prev, [key]: newCell }));
+        const newPendingChanges = { ...pendingChanges, [key]: newCell };
+        setPendingChanges(newPendingChanges);
+        
+        // Save both cells and pending changes to offline storage
+        const updatedCells = { ...cells, [key]: newCell };
+        saveOfflineData({ 
+          ...offlineData, 
+          cells: updatedCells,
+          pendingChanges: newPendingChanges
+        });
+        
         toast({ title: "Saved offline", description: "Will sync when connection is restored" });
       }
     } else {
-      setPendingChanges(prev => ({ ...prev, [key]: newCell }));
+      // Store as pending change when offline
+      const newPendingChanges = { ...pendingChanges, [key]: newCell };
+      setPendingChanges(newPendingChanges);
+      
+      // Save both cells and pending changes to offline storage
+      const updatedCells = { ...cells, [key]: newCell };
+      saveOfflineData({ 
+        ...offlineData, 
+        cells: updatedCells,
+        pendingChanges: newPendingChanges
+      });
     }
   };
 
@@ -147,30 +176,69 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
 
   // Sync pending changes when back online
   useEffect(() => {
-    if (isOnline && Object.keys(pendingChanges).length > 0) {
-      const syncChanges = async () => {
-        for (const [key, cell] of Object.entries(pendingChanges)) {
-          try {
-            await supabase
-              .from('table_data')
-              .upsert({
-                table_id: tableId,
-                row_index: cell.row,
-                column_index: cell.col,
-                value: cell.value,
-                last_modified_by: user?.id,
-                version: cell.version,
-              });
-          } catch (error) {
-            console.error('Error syncing cell:', error);
+    const syncPendingChanges = async () => {
+      if (!isOnline || Object.keys(pendingChanges).length === 0 || isSyncing) return;
+      
+      setIsSyncing(true);
+      let syncedCount = 0;
+      let failedCount = 0;
+      
+      console.log('Starting sync of pending changes:', Object.keys(pendingChanges).length);
+      
+      for (const [key, cell] of Object.entries(pendingChanges)) {
+        try {
+          const { error } = await supabase
+            .from('table_data')
+            .upsert({
+              table_id: tableId,
+              row_index: cell.row,
+              column_index: cell.col,
+              value: cell.value,
+              last_modified_by: user?.id,
+              version: cell.version,
+            });
+
+          if (error) {
+            console.error('Error syncing cell:', key, error);
+            failedCount++;
+          } else {
+            console.log('Successfully synced cell:', key);
+            syncedCount++;
           }
+        } catch (error) {
+          console.error('Exception syncing cell:', key, error);
+          failedCount++;
         }
+      }
+      
+      if (failedCount === 0) {
+        // All changes synced successfully, clear pending changes
         setPendingChanges({});
-        toast({ title: "Changes synced", description: "All offline changes have been synced" });
-      };
-      syncChanges();
-    }
-  }, [isOnline, pendingChanges, tableId, user?.id, toast]);
+        saveOfflineData({ 
+          ...offlineData, 
+          cells: cells,
+          pendingChanges: {}
+        });
+        
+        if (syncedCount > 0) {
+          toast({ 
+            title: "Changes synced", 
+            description: `${syncedCount} offline changes have been synced successfully` 
+          });
+        }
+      } else {
+        toast({ 
+          title: "Partial sync", 
+          description: `${syncedCount} changes synced, ${failedCount} failed. Will retry.`,
+          variant: "destructive"
+        });
+      }
+      
+      setIsSyncing(false);
+    };
+
+    syncPendingChanges();
+  }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing]);
 
   // Set up real-time subscriptions
   useEffect(() => {
@@ -250,6 +318,11 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           {Object.keys(pendingChanges).length > 0 && (
             <Badge variant="outline">
               {Object.keys(pendingChanges).length} pending
+            </Badge>
+          )}
+          {isSyncing && (
+            <Badge variant="secondary">
+              Syncing...
             </Badge>
           )}
         </div>
