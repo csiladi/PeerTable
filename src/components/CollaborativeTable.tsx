@@ -42,6 +42,15 @@ type TableUserRow = {
   has_pending?: boolean;
 };
 
+type TableHistoryRow = {
+  row_index: number;
+  column_index: number;
+  old_value: string | null;
+  new_value: string | null;
+  modified_by: string | null;
+  modified_at: string;
+};
+
 export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -61,6 +70,10 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [serverCellsSnapshot, setServerCellsSnapshot] = useState<Record<string, TableCell>>({});
   const [recentlySyncedCells, setRecentlySyncedCells] = useState<Set<string>>(new Set());
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<TableHistoryRow[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   // Initialize table with default size - now editable
   const [rows, setRows] = useState(10);
@@ -225,15 +238,34 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     }
   }, [tableId, isOnline, offlineData, toast, rows, cols]);
 
+  // Helper to log a cell change to table_history
+  const logCellHistory = async (row: number, col: number, oldValue: string | null, newValue: string, modifiedBy: string | null, modifiedAt: string) => {
+    try {
+      await supabase.from('table_history').insert({
+        table_id: tableId,
+        row_index: row,
+        column_index: col,
+        old_value: oldValue,
+        new_value: newValue,
+        modified_by: modifiedBy,
+        modified_at: modifiedAt,
+      });
+    } catch (err) {
+      console.error('Error logging table history:', err);
+    }
+  };
+
   // Update cell value
   const updateCell = async (row: number, col: number, value: string) => {
     const key = getCellKey(row, col);
+    const currentCellValue = cells[key]?.value || '';
     const newCell: TableCell = {
       row,
       col,
       value,
       version: (cells[key]?.version || 0) + 1,
       lastModifiedBy: user?.id,
+      lastModifiedAt: new Date().toISOString(),
     };
 
     // Update local state immediately (optimistic update)
@@ -244,7 +276,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         // First check if the record already exists
         const { data: existingData, error: checkError } = await supabase
           .from('table_data')
-          .select('id, version')
+          .select('id, version, value')
           .eq('table_id', tableId)
           .eq('row_index', row)
           .eq('column_index', col)
@@ -255,6 +287,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         }
 
         let upsertError;
+        const oldValue = existingData ? existingData.value : null;
         if (existingData) {
           // Record exists, update it
           const { error } = await supabase
@@ -263,7 +296,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
               value: value,
               last_modified_by: user?.id,
               version: Math.max(newCell.version, existingData.version + 1),
-              last_modified_at: new Date().toISOString(),
+              last_modified_at: newCell.lastModifiedAt,
             })
             .eq('id', existingData.id);
           upsertError = error;
@@ -278,9 +311,13 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
               value: value,
               last_modified_by: user?.id,
               version: newCell.version,
+              last_modified_at: newCell.lastModifiedAt,
             });
           upsertError = error;
         }
+
+        // Log to table_history
+        await logCellHistory(row, col, oldValue, value, user?.id || null, newCell.lastModifiedAt!);
 
         if (upsertError) {
           throw upsertError;
@@ -467,6 +504,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           }
           // Mark this cell as recently updated
           updatedCellKeys.push(key);
+          // Log to table_history (sync context: old value is server value, new value is cell.value)
+          const oldValue = existingData ? existingData.value : null;
+          await logCellHistory(cell.row, cell.col, oldValue, cell.value, user?.id || null, cell.lastModifiedAt || new Date().toISOString());
         }
 
         if (syncError) {
@@ -590,7 +630,6 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const data = payload.new as Tables<'table_data'>;
             const key = getCellKey(data.row_index, data.column_index);
-            
             // Only update if it's not our own change and we're not currently editing this cell
             if (data.last_modified_by !== user?.id && editingCell !== key) {
               setCells(prev => ({
@@ -603,6 +642,19 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                   lastModifiedBy: data.last_modified_by || undefined,
                 }
               }));
+              // Flash this cell as recently updated by another user
+              setRecentlySyncedCells(prev => {
+                const newSet = new Set(prev);
+                newSet.add(key);
+                return newSet;
+              });
+              setTimeout(() => {
+                setRecentlySyncedCells(prev => {
+                  const newSet = new Set(prev);
+                  newSet.delete(key);
+                  return newSet;
+                });
+              }, 1000); // 1s flash
             }
           }
         }
@@ -888,6 +940,24 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
 
+  const fetchTableHistory = async () => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const { data, error } = await supabase
+        .from('table_history')
+        .select('row_index, column_index, old_value, new_value, modified_by, modified_at')
+        .eq('table_id', tableId)
+        .order('modified_at', { ascending: false });
+      if (error) throw error;
+      setHistory((data as TableHistoryRow[]) || []);
+    } catch (err: unknown) {
+      setHistoryError((err instanceof Error && err.message) ? err.message : 'Error fetching history');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -999,6 +1069,55 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           {rows} × {cols}
         </Badge>
       </div>
+
+      {/* Table History Button and Modal */}
+      <div className="flex justify-end mb-2">
+        <Button variant="outline" onClick={() => { setShowHistory(true); fetchTableHistory(); }}>
+          Table History
+        </Button>
+      </div>
+      <Dialog open={showHistory} onOpenChange={setShowHistory}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Table History</DialogTitle>
+            <DialogDescription>
+              All cell modifications for this table (most recent first)
+            </DialogDescription>
+          </DialogHeader>
+          {loadingHistory ? (
+            <div className="py-8 text-center">Loading...</div>
+          ) : historyError ? (
+            <div className="py-8 text-center text-red-500">{historyError}</div>
+          ) : history.length === 0 ? (
+            <div className="py-8 text-center text-gray-500">No history yet.</div>
+          ) : (
+            <div className="overflow-x-auto max-h-[60vh]">
+              <table className="min-w-full text-sm border">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="p-2 border">Cell</th>
+                    <th className="p-2 border">Old Value</th>
+                    <th className="p-2 border">New Value</th>
+                    <th className="p-2 border">Modified By</th>
+                    <th className="p-2 border">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((h, i) => (
+                    <tr key={i}>
+                      <td className="p-2 border font-mono">{String.fromCharCode(65 + h.column_index)}{h.row_index + 1}</td>
+                      <td className="p-2 border text-gray-500">{h.old_value ?? <span className="italic">(empty)</span>}</td>
+                      <td className="p-2 border">{h.new_value ?? <span className="italic">(empty)</span>}</td>
+                      <td className="p-2 border">{h.modified_by ? (userInfo[h.modified_by]?.username || h.modified_by.slice(0, 6)) : <span className="italic">unknown</span>}</td>
+                      <td className="p-2 border whitespace-nowrap">{new Date(h.modified_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <div className="overflow-x-auto" ref={scrollRef}>
         <table className="w-full border-collapse border border-gray-300">

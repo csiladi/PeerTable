@@ -109,6 +109,47 @@ export type Database = {
           },
         ]
       }
+      table_history: {
+        Row: {
+          id: string;
+          table_id: string;
+          row_index: number;
+          column_index: number;
+          old_value: string | null;
+          new_value: string | null;
+          modified_by: string | null;
+          modified_at: string;
+        };
+        Insert: {
+          id?: string;
+          table_id: string;
+          row_index: number;
+          column_index: number;
+          old_value?: string | null;
+          new_value?: string | null;
+          modified_by?: string | null;
+          modified_at?: string;
+        };
+        Update: {
+          id?: string;
+          table_id?: string;
+          row_index?: number;
+          column_index?: number;
+          old_value?: string | null;
+          new_value?: string | null;
+          modified_by?: string | null;
+          modified_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "table_history_table_id_fkey";
+            columns: ["table_id"];
+            isOneToOne: false;
+            referencedRelation: "peer_tables";
+            referencedColumns: ["id"];
+          },
+        ];
+      }
     }
     Views: {
       [_ in never]: never
