@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 
 interface OfflineData {
@@ -33,8 +32,11 @@ export const useOfflineStorage = (key: string) => {
   }, [key]);
 
   const saveData = (newData: OfflineData) => {
-    setData(newData);
-    localStorage.setItem(key, JSON.stringify(newData));
+    setData(prev => {
+      const merged = { ...prev, ...newData };
+      localStorage.setItem(key, JSON.stringify(merged));
+      return merged;
+    });
   };
 
   const clearData = () => {

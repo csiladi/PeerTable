@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Tables } from '@/integrations/supabase/types';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Plus } from 'lucide-react';
+import { RefreshCw, Plus, Minus } from 'lucide-react';
 
 interface TableCell {
   row: number;
@@ -27,6 +27,7 @@ type TableUserRow = {
   last_seen: string;
   username?: string;
   cursor_position?: unknown;
+  has_pending?: boolean;
 };
 
 export const CollaborativeTable = ({ tableId, tableName }: Props) => {
@@ -41,7 +42,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [editingValue, setEditingValue] = useState<string>('');
   const [pendingChanges, setPendingChanges] = useState<Record<string, TableCell>>({});
   const [isSyncing, setIsSyncing] = useState(false);
-  const [userInfo, setUserInfo] = useState<Record<string, { username: string }>>({});
+  const [userInfo, setUserInfo] = useState<Record<string, { username: string; hasPending?: boolean }>>({});
   const [showUserTooltip, setShowUserTooltip] = useState(false);
 
   // Initialize table with default size - now editable
@@ -50,6 +51,11 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
 
   // Ref for scrollable container
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Always merge cells and pendingChanges for display
+  const displayedCells = useMemo(() => {
+    return { ...cells, ...pendingChanges };
+  }, [cells, pendingChanges]);
 
   const getCellKey = (row: number, col: number) => `${row}-${col}`;
 
@@ -73,10 +79,60 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     toast({ title: "Row added", description: "New row has been added to the table" });
   };
 
+  // Remove row function
+  const removeRow = () => {
+    if (rows > 1) {
+      preserveScroll(() => setRows(prev => prev - 1));
+      // Remove cells in the last row from state
+      const updatedCells = { ...cells };
+      const updatedPending = { ...pendingChanges };
+      for (let col = 0; col < cols; col++) {
+        const key = getCellKey(rows - 1, col);
+        delete updatedCells[key];
+        delete updatedPending[key];
+      }
+      setCells(updatedCells);
+      setPendingChanges(updatedPending);
+      saveOfflineData({
+        ...offlineData,
+        cells: updatedCells,
+        pendingChanges: updatedPending,
+        rows: rows - 1,
+        cols
+      });
+      toast({ title: "Row removed", description: "Last row has been removed from the table" });
+    }
+  };
+
   // Add column function
   const addColumn = () => {
     preserveScroll(() => setCols(prev => prev + 1));
     toast({ title: "Column added", description: "New column has been added to the table" });
+  };
+
+  // Remove column function
+  const removeColumn = () => {
+    if (cols > 1) {
+      preserveScroll(() => setCols(prev => prev - 1));
+      // Remove cells in the last column from state
+      const updatedCells = { ...cells };
+      const updatedPending = { ...pendingChanges };
+      for (let row = 0; row < rows; row++) {
+        const key = getCellKey(row, cols - 1);
+        delete updatedCells[key];
+        delete updatedPending[key];
+      }
+      setCells(updatedCells);
+      setPendingChanges(updatedPending);
+      saveOfflineData({
+        ...offlineData,
+        cells: updatedCells,
+        pendingChanges: updatedPending,
+        rows,
+        cols: cols - 1
+      });
+      toast({ title: "Column removed", description: "Last column has been removed from the table" });
+    }
   };
 
   // Load data from Supabase
@@ -84,6 +140,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     if (!isOnline) {
       const savedCells = offlineData.cells || {};
       const savedPending = offlineData.pendingChanges || {};
+      console.log('offlineData', offlineData);
       const savedRows = offlineData.rows || 10;
       const savedCols = offlineData.cols || 5;
       setCells(savedCells);
@@ -121,13 +178,15 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       // Only grow, never shrink
       if (maxRow + 1 > rows) setRows(maxRow + 1);
       if (maxCol + 1 > cols) setCols(maxCol + 1);
+
       setCells(cellData);
-      saveOfflineData({ ...offlineData, cells: cellData, rows: Math.max(rows, maxRow + 1), cols: Math.max(cols, maxCol + 1) });
+      setRows(Math.max(rows, maxRow + 1));
+      setCols(Math.max(cols, maxCol + 1));
     } catch (error: unknown) {
       const err = error as Error;
       toast({ title: "Error loading table", description: err.message, variant: "destructive" });
     }
-  }, [tableId, isOnline, offlineData, saveOfflineData, toast, rows, cols]);
+  }, [tableId, isOnline, offlineData, toast, rows, cols]);
 
   // Update cell value
   const updateCell = async (row: number, col: number, value: string) => {
@@ -442,7 +501,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         console.log('Periodic check: syncing pending changes');
         syncPendingChanges();
       }
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [isOnline, pendingChanges, isSyncing, syncPendingChanges]);
@@ -537,14 +596,14 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       try {
         const { data, error } = await supabase
           .from('table_users')
-          .select('user_id, last_seen, cursor_position, username')
+          .select('user_id, last_seen, cursor_position, username, has_pending')
           .eq('table_id', tableId);
         if (!error && Array.isArray(data)) {
           // Consider users active if last_seen is within the last 35 seconds
           const now = Date.now();
           const active: string[] = [];
           const selections: Record<string, { row: number; col: number }> = {};
-          const info: Record<string, { username: string }> = {};
+          const info: Record<string, { username: string; hasPending?: boolean }> = {};
           data.forEach(row => {
             if (isTableUserRow(row)) {
               const u = row;
@@ -553,7 +612,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                 const userId = u.user_id;
                 const username = u.username;
                 active.push(userId);
-                info[userId] = { username: username || userId.slice(0, 6) };
+                info[userId] = { username: username || userId.slice(0, 6), hasPending: !!(u as TableUserRow).has_pending };
                 // Type guard for cursor_position
                 function isSelectedCell(pos: unknown): pos is { selectedCell: { row: number; col: number } } {
                   return (
@@ -612,6 +671,17 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     };
   }, [tableId, user, isOnline]);
 
+  // Broadcast has_pending to other users when pendingChanges changes
+  useEffect(() => {
+    if (!isOnline || !user) return;
+    const hasPending = Object.keys(pendingChanges).length > 0;
+    supabase
+      .from('table_users')
+      .update(({ has_pending: hasPending } as unknown) as Record<string, unknown>)
+      .eq('table_id', tableId)
+      .eq('user_id', user.id);
+  }, [pendingChanges, isOnline, user, tableId]);
+
   // Assign a random color to each user for their popup
   const userColors = useMemo(() => {
     const colors = [
@@ -628,6 +698,47 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     });
     return map;
   }, [activeUsers]);
+
+  // Ref for debouncing offline storage writes
+  const saveTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounced persist to offline storage
+  useEffect(() => {
+    if (saveTimeout.current) {
+      clearTimeout(saveTimeout.current);
+    }
+    saveTimeout.current = setTimeout(() => {
+      saveOfflineData({
+        ...offlineData,
+        cells, // keep server state
+        pendingChanges,
+        rows,
+        cols,
+      });
+    }, 400); // 400ms debounce
+    return () => {
+      if (saveTimeout.current) {
+        clearTimeout(saveTimeout.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingChanges, cells, rows, cols]);
+
+  // Persist on page unload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      saveOfflineData({
+        ...offlineData,
+        cells,
+        pendingChanges,
+        rows,
+        cols,
+      });
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingChanges, cells, rows, cols, offlineData]);
 
   return (
     <div className="p-6">
@@ -646,9 +757,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                   <div className="font-semibold text-xs text-gray-500 mb-1">Currently editing:</div>
                   <ul className="text-sm">
                     {activeUsers.filter(uid => uid !== user?.id).map(uid => (
-                      <li key={uid} className="py-0.5">
+                      <li key={uid} className="py-0.5 flex items-center">
                         <span className={`inline-block w-2 h-2 rounded-full mr-2 align-middle ${userColors[uid]}`}></span>
                         {userInfo[uid]?.username || uid.slice(0, 6)}
+                        {userInfo[uid]?.hasPending && (
+                          <span className="ml-2 text-xs text-yellow-600 bg-yellow-100 rounded px-1 py-0.5">offline changes</span>
+                        )}
                       </li>
                     ))}
                     <li className="py-0.5 text-indigo-700 font-semibold">You</li>
@@ -693,7 +807,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         </div>
       </div>
 
-      {/* Add row/column buttons */}
+      {/* Add/remove row/column buttons */}
       <div className="flex items-center gap-2 mb-4">
         <Button
           onClick={addRow}
@@ -705,6 +819,16 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           Add Row
         </Button>
         <Button
+          onClick={removeRow}
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-2"
+          disabled={rows <= 1}
+        >
+          <Minus className="h-4 w-4" />
+          Remove Row
+        </Button>
+        <Button
           onClick={addColumn}
           size="sm"
           variant="outline"
@@ -712,6 +836,16 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         >
           <Plus className="h-4 w-4" />
           Add Column
+        </Button>
+        <Button
+          onClick={removeColumn}
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-2"
+          disabled={cols <= 1}
+        >
+          <Minus className="h-4 w-4" />
+          Remove Column
         </Button>
         <Badge variant="secondary" className="ml-2">
           {rows} × {cols}
@@ -738,7 +872,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                 </td>
                 {Array.from({ length: cols }, (_, colIndex) => {
                   const key = getCellKey(rowIndex, colIndex);
-                  const cell = cells[key];
+                  const cell = displayedCells[key];
                   const isEditing = editingCell === key;
                   const isPending = key in pendingChanges;
                   // Find if any other user is editing this cell
