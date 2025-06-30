@@ -963,6 +963,21 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     }
   };
 
+  // Input ref for focus management
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Restore input focus if editingCell is set and page becomes visible
+  useEffect(() => {
+    if (!editingCell) return;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && inputRef.current) {
+        inputRef.current.focus();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [editingCell]);
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -1123,7 +1138,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       </Dialog>
 
       <div className="overflow-x-auto" ref={scrollRef}>
-        <table className="w-full border-collapse border border-gray-300 dark:border-gray-700 bg-white dark:bg-zinc-900 rounded-lg shadow-sm">
+        <table className="w-full border-collapse border border-gray-300 dark:border-gray-700 bg-white dark:bg-zinc-900 rounded-lg shadow-sm" style={{ tableLayout: 'fixed' }}>
           <thead>
             <tr>
               <th className="border border-gray-300 dark:border-gray-700 p-2 bg-gray-100 dark:bg-zinc-800 w-12 text-gray-700 dark:text-gray-200">#</th>
@@ -1152,7 +1167,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                       uid !== user?.id && selected.row === rowIndex && selected.col === colIndex
                     );
                   return (
-                    <td key={colIndex} className={`relative border border-gray-300 dark:border-gray-700 p-0 transition-colors duration-200 ${isPending ? 'bg-yellow-50 dark:bg-yellow-900/30' : ''} ${isRecentlySynced ? 'bg-blue-100 dark:bg-blue-900/40 animate-flash' : ''}`}>
+                    <td key={colIndex} className={`relative border border-gray-300 dark:border-gray-700 p-0 transition-colors duration-200 h-full align-middle ${isPending ? 'bg-yellow-50 dark:bg-yellow-900/30' : ''} ${isRecentlySynced ? 'bg-blue-100 dark:bg-blue-900/40 animate-flash' : ''}`} style={{ height: '2.5rem' }}>
                       {/* Popups for other users editing this cell */}
                       {popups.map(([uid]) => (
                         <div
@@ -1176,6 +1191,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                       ))}
                       {isEditing ? (
                         <Input
+                          ref={el => {
+                            if (el) {
+                              inputRef.current = el;
+                              el.focus();
+                            }
+                          }}
                           value={editingValue}
                           onChange={(e) => setEditingValue(e.target.value)}
                           onBlur={finishEditing}
@@ -1187,12 +1208,14 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                               cancelEditing();
                             }
                           }}
-                          className="border-0 h-8 focus:ring-0 bg-white dark:bg-zinc-900 text-gray-900 dark:text-gray-100"
+                          className="border-0 h-8 focus:ring-0 bg-indigo-50 dark:bg-indigo-900/40 text-gray-900 dark:text-gray-100 p-2 min-w-0 w-full font-normal text-sm h-full w-full"
+                          style={{ minHeight: '2rem', borderRadius: 0, boxShadow: 'none' }}
                           autoFocus
                         />
                       ) : (
                         <div
-                          className="min-h-8 p-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800/70 transition-colors duration-150 text-gray-900 dark:text-gray-100"
+                          className={`h-full w-full min-h-8 p-2 cursor-pointer transition-colors duration-150 text-gray-900 dark:text-gray-100 min-w-0 font-normal text-sm flex items-center ${!isEditing ? 'hover:bg-indigo-50 dark:hover:bg-indigo-900/40' : ''}`}
+                          style={{ minHeight: '2rem', borderRadius: 0, boxShadow: 'none' }}
                           onClick={() => startEditing(rowIndex, colIndex)}
                         >
                           {cell?.value || ''}
