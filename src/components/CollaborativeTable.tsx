@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineStorage } from '@/hooks/useOfflineStorage';
@@ -38,17 +38,34 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [rows, setRows] = useState(10);
   const [cols, setCols] = useState(5);
 
+  // Ref for scrollable container
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   const getCellKey = (row: number, col: number) => `${row}-${col}`;
+
+  // Helper to preserve scroll position
+  const preserveScroll = (fn: () => void) => {
+    const el = scrollRef.current;
+    const scrollLeft = el?.scrollLeft ?? 0;
+    const scrollTop = el?.scrollTop ?? 0;
+    fn();
+    setTimeout(() => {
+      if (el) {
+        el.scrollLeft = scrollLeft;
+        el.scrollTop = scrollTop;
+      }
+    }, 0);
+  };
 
   // Add row function
   const addRow = () => {
-    setRows(prev => prev + 1);
+    preserveScroll(() => setRows(prev => prev + 1));
     toast({ title: "Row added", description: "New row has been added to the table" });
   };
 
   // Add column function
   const addColumn = () => {
-    setCols(prev => prev + 1);
+    preserveScroll(() => setCols(prev => prev + 1));
     toast({ title: "Column added", description: "New column has been added to the table" });
   };
 
@@ -91,13 +108,14 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         maxCol = Math.max(maxCol, item.column_index);
       });
 
-      // Update table dimensions based on data
-      setRows(maxRow + 1);
-      setCols(maxCol + 1);
+      // Only grow, never shrink
+      if (maxRow + 1 > rows) setRows(maxRow + 1);
+      if (maxCol + 1 > cols) setCols(maxCol + 1);
       setCells(cellData);
-      saveOfflineData({ ...offlineData, cells: cellData, rows: maxRow + 1, cols: maxCol + 1 });
-    } catch (error: any) {
-      toast({ title: "Error loading table", description: error.message, variant: "destructive" });
+      saveOfflineData({ ...offlineData, cells: cellData, rows: Math.max(rows, maxRow + 1), cols: Math.max(cols, maxCol + 1) });
+    } catch (error: unknown) {
+      const err = error as Error;
+      toast({ title: "Error loading table", description: err.message, variant: "destructive" });
     }
   }, [tableId, isOnline, offlineData, saveOfflineData, toast, rows, cols]);
 
@@ -176,7 +194,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           rows,
           cols
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error saving to Supabase:', error);
         // If online update fails, store as pending change
         const newPendingChanges = { ...pendingChanges, [key]: newCell };
@@ -315,10 +333,10 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         // Add small delay between operations to prevent overwhelming the database
         await new Promise(resolve => setTimeout(resolve, 50));
         
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Exception syncing cell:', key, error);
         // Don't keep retrying if it's a duplicate key constraint
-        if (!error.message?.includes('duplicate key')) {
+        if (!(error instanceof Error) || !error.message?.includes('duplicate key')) {
           remainingPendingChanges[key] = cell;
           failedCount++;
         } else {
@@ -472,16 +490,72 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       }
     };
 
-    trackPresence();
-    const interval = setInterval(trackPresence, 30000); // Update every 30 seconds
+    // Fetch all online users for this table
+    const fetchActiveUsers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('table_users')
+          .select('user_id, last_seen')
+          .eq('table_id', tableId);
+        if (!error && data) {
+          // Consider users active if last_seen is within the last 35 seconds
+          const now = Date.now();
+          const active = data.filter(u => {
+            const lastSeen = new Date(u.last_seen).getTime();
+            return now - lastSeen < 35000;
+          }).map(u => u.user_id);
+          setActiveUsers(active);
+        }
+      } catch (error) {
+        console.error('Error fetching active users:', error);
+      }
+    };
 
-    return () => clearInterval(interval);
+    trackPresence();
+    fetchActiveUsers();
+    const presenceInterval = setInterval(() => {
+      trackPresence();
+      fetchActiveUsers();
+    }, 15000); // Update every 15 seconds
+
+    // Subscribe to realtime changes in table_users
+    const channel = supabase
+      .channel(`table-users-${tableId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'table_users',
+          filter: `table_id=eq.${tableId}`,
+        },
+        (payload) => {
+          fetchActiveUsers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(presenceInterval);
+      supabase.removeChannel(channel);
+    };
   }, [tableId, user, isOnline]);
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">{tableName}</h1>
+        <div className="flex-1 text-center">
+          {activeUsers.length > 1 ? (
+            <span className="text-sm text-indigo-700 font-medium bg-indigo-50 rounded px-3 py-1">
+              {activeUsers.length} people are editing this table
+            </span>
+          ) : activeUsers.length === 1 ? (
+            <span className="text-sm text-gray-500 font-medium bg-gray-50 rounded px-3 py-1">
+              You are editing this table
+            </span>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
           <Badge variant={isOnline ? "default" : "secondary"}>
             {isOnline ? "Online" : "Offline"}
@@ -538,7 +612,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         </Badge>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" ref={scrollRef}>
         <table className="w-full border-collapse border border-gray-300">
           <thead>
             <tr>
