@@ -385,18 +385,42 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     loadTableData();
   }, [loadTableData]);
 
-  // Track user presence
+  // Track user presence with improved error handling
   useEffect(() => {
     if (!isOnline || !user) return;
 
     const trackPresence = async () => {
-      await supabase
-        .from('table_users')
-        .upsert({
-          table_id: tableId,
-          user_id: user.id,
-          last_seen: new Date().toISOString(),
-        });
+      try {
+        // First try to update existing record
+        const { data, error: updateError } = await supabase
+          .from('table_users')
+          .update({
+            last_seen: new Date().toISOString(),
+          })
+          .eq('table_id', tableId)
+          .eq('user_id', user.id)
+          .select();
+
+        // If no rows were updated, insert a new record
+        if (!updateError && (!data || data.length === 0)) {
+          const { error: insertError } = await supabase
+            .from('table_users')
+            .insert({
+              table_id: tableId,
+              user_id: user.id,
+              last_seen: new Date().toISOString(),
+            });
+
+          // Ignore duplicate key errors as they mean the record already exists
+          if (insertError && !insertError.message?.includes('duplicate key')) {
+            console.error('Error inserting user presence:', insertError);
+          }
+        } else if (updateError) {
+          console.error('Error updating user presence:', updateError);
+        }
+      } catch (error) {
+        console.error('Error in trackPresence:', error);
+      }
     };
 
     trackPresence();
