@@ -211,132 +211,148 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   };
 
   // Sync pending changes when back online
-  useEffect(() => {
-    const syncPendingChanges = async () => {
-      if (!isOnline || Object.keys(pendingChanges).length === 0 || isSyncing) return;
-      
-      setIsSyncing(true);
-      let syncedCount = 0;
-      let failedCount = 0;
-      const remainingPendingChanges: Record<string, TableCell> = {};
-      
-      console.log('Starting sync of pending changes:', Object.keys(pendingChanges).length);
-      
-      // Process each pending change sequentially to avoid conflicts
-      for (const [key, cell] of Object.entries(pendingChanges)) {
-        try {
-          // Use the same logic as updateCell for consistency
-          const { data: existingData, error: checkError } = await supabase
+  const syncPendingChanges = useCallback(async () => {
+    if (!isOnline || Object.keys(pendingChanges).length === 0 || isSyncing) return;
+    
+    setIsSyncing(true);
+    let syncedCount = 0;
+    let failedCount = 0;
+    const remainingPendingChanges: Record<string, TableCell> = {};
+    
+    console.log('Starting sync of pending changes:', Object.keys(pendingChanges).length);
+    
+    // Process each pending change sequentially to avoid conflicts
+    for (const [key, cell] of Object.entries(pendingChanges)) {
+      try {
+        // Use the same logic as updateCell for consistency
+        const { data: existingData, error: checkError } = await supabase
+          .from('table_data')
+          .select('id, version')
+          .eq('table_id', tableId)
+          .eq('row_index', cell.row)
+          .eq('column_index', cell.col)
+          .maybeSingle();
+
+        if (checkError && checkError.code !== 'PGRST116') {
+          throw checkError;
+        }
+
+        let syncError;
+        if (existingData) {
+          // Record exists, update it with proper version handling
+          const { error } = await supabase
             .from('table_data')
-            .select('id, version')
-            .eq('table_id', tableId)
-            .eq('row_index', cell.row)
-            .eq('column_index', cell.col)
-            .maybeSingle();
+            .update({
+              value: cell.value,
+              last_modified_by: user?.id,
+              version: Math.max(cell.version, existingData.version + 1),
+              last_modified_at: new Date().toISOString(),
+            })
+            .eq('id', existingData.id);
+          syncError = error;
+        } else {
+          // Record doesn't exist, insert it
+          const { error } = await supabase
+            .from('table_data')
+            .insert({
+              table_id: tableId,
+              row_index: cell.row,
+              column_index: cell.col,
+              value: cell.value,
+              last_modified_by: user?.id,
+              version: cell.version,
+            });
+          syncError = error;
+        }
 
-          if (checkError && checkError.code !== 'PGRST116') {
-            throw checkError;
-          }
-
-          let syncError;
-          if (existingData) {
-            // Record exists, update it with proper version handling
-            const { error } = await supabase
-              .from('table_data')
-              .update({
-                value: cell.value,
-                last_modified_by: user?.id,
-                version: Math.max(cell.version, existingData.version + 1),
-                last_modified_at: new Date().toISOString(),
-              })
-              .eq('id', existingData.id);
-            syncError = error;
-          } else {
-            // Record doesn't exist, insert it
-            const { error } = await supabase
-              .from('table_data')
-              .insert({
-                table_id: tableId,
-                row_index: cell.row,
-                column_index: cell.col,
-                value: cell.value,
-                last_modified_by: user?.id,
-                version: cell.version,
-              });
-            syncError = error;
-          }
-
-          if (syncError) {
-            console.error('Error syncing cell:', key, syncError);
-            // Only keep as pending if it's not a duplicate key error
-            if (!syncError.message?.includes('duplicate key')) {
-              remainingPendingChanges[key] = cell;
-              failedCount++;
-            } else {
-              // For duplicate key errors, consider it synced (data is already there)
-              console.log('Cell already synced (duplicate key):', key);
-              syncedCount++;
-            }
-          } else {
-            console.log('Successfully synced cell:', key);
-            syncedCount++;
-          }
-          
-          // Add small delay between operations to prevent overwhelming the database
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-        } catch (error: any) {
-          console.error('Exception syncing cell:', key, error);
-          // Don't keep retrying if it's a duplicate key constraint
-          if (!error.message?.includes('duplicate key')) {
+        if (syncError) {
+          console.error('Error syncing cell:', key, syncError);
+          // Only keep as pending if it's not a duplicate key error
+          if (!syncError.message?.includes('duplicate key')) {
             remainingPendingChanges[key] = cell;
             failedCount++;
           } else {
-            console.log('Cell already exists (skipping):', key);
+            // For duplicate key errors, consider it synced (data is already there)
+            console.log('Cell already synced (duplicate key):', key);
             syncedCount++;
           }
+        } else {
+          console.log('Successfully synced cell:', key);
+          syncedCount++;
+        }
+        
+        // Add small delay between operations to prevent overwhelming the database
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+      } catch (error: any) {
+        console.error('Exception syncing cell:', key, error);
+        // Don't keep retrying if it's a duplicate key constraint
+        if (!error.message?.includes('duplicate key')) {
+          remainingPendingChanges[key] = cell;
+          failedCount++;
+        } else {
+          console.log('Cell already exists (skipping):', key);
+          syncedCount++;
         }
       }
-      
-      // Update pending changes with only the truly failed ones
-      setPendingChanges(remainingPendingChanges);
-      
-      // After sync, reload the table data to get the latest state from database
-      if (syncedCount > 0) {
-        await loadTableData();
-      }
-      
-      // Update offline storage
-      saveOfflineData({ 
-        ...offlineData, 
-        cells: cells,
-        pendingChanges: remainingPendingChanges
+    }
+    
+    // Update pending changes with only the truly failed ones
+    setPendingChanges(remainingPendingChanges);
+    
+    // After sync, reload the table data to get the latest state from database
+    if (syncedCount > 0) {
+      await loadTableData();
+    }
+    
+    // Update offline storage
+    saveOfflineData({ 
+      ...offlineData, 
+      cells: cells,
+      pendingChanges: remainingPendingChanges
+    });
+    
+    // Show appropriate toast messages
+    if (failedCount === 0 && syncedCount > 0) {
+      toast({ 
+        title: "Changes synced", 
+        description: `${syncedCount} offline changes have been synced successfully` 
       });
-      
-      // Show appropriate toast messages
-      if (failedCount === 0 && syncedCount > 0) {
-        toast({ 
-          title: "Changes synced", 
-          description: `${syncedCount} offline changes have been synced successfully` 
-        });
-      } else if (failedCount > 0) {
-        toast({ 
-          title: "Partial sync", 
-          description: `${syncedCount} changes synced, ${failedCount} failed. Will retry.`,
-          variant: "destructive"
-        });
-      }
-      
-      setIsSyncing(false);
-    };
+    } else if (failedCount > 0) {
+      toast({ 
+        title: "Partial sync", 
+        description: `${syncedCount} changes synced, ${failedCount} failed. Will retry.`,
+        variant: "destructive"
+      });
+    }
+    
+    setIsSyncing(false);
+  }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing, loadTableData]);
 
-    // Only sync when coming online and there are pending changes
-    if (isOnline && Object.keys(pendingChanges).length > 0) {
-      // Add a small delay to ensure connection is stable
+  // Sync pending changes when coming online and every 5 seconds if there are pending changes
+  useEffect(() => {
+    if (!isOnline) return;
+
+    // Sync immediately when coming online
+    if (Object.keys(pendingChanges).length > 0) {
       const timeoutId = setTimeout(syncPendingChanges, 1000);
       return () => clearTimeout(timeoutId);
     }
-  }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing, loadTableData]);
+  }, [isOnline, pendingChanges, syncPendingChanges]);
+
+  // Periodic check for pending changes every 5 seconds
+  useEffect(() => {
+    if (!isOnline || Object.keys(pendingChanges).length === 0) return;
+
+    const interval = setInterval(() => {
+      if (Object.keys(pendingChanges).length > 0 && !isSyncing) {
+        console.log('Periodic check: syncing pending changes');
+        syncPendingChanges();
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isOnline, pendingChanges, isSyncing, syncPendingChanges]);
 
   // Set up real-time subscriptions
   useEffect(() => {
