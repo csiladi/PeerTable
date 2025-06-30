@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Tables } from '@/integrations/supabase/types';
 import { Badge } from '@/components/ui/badge';
+import { Sync } from 'lucide-react';
 
 interface TableCell {
   row: number;
@@ -454,9 +455,23 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
             {isOnline ? "Online" : "Offline"}
           </Badge>
           {Object.keys(pendingChanges).length > 0 && (
-            <Badge variant="outline">
-              {Object.keys(pendingChanges).length} pending
-            </Badge>
+            <>
+              <Badge variant="outline">
+                {Object.keys(pendingChanges).length} pending
+              </Badge>
+              {isOnline && (
+                <Button
+                  onClick={syncPendingChanges}
+                  disabled={isSyncing}
+                  size="sm"
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <Sync className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? 'Syncing...' : 'Sync'}
+                </Button>
+              )}
+            </>
           )}
           {isSyncing && (
             <Badge variant="secondary">
