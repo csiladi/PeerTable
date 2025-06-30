@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Tables } from '@/integrations/supabase/types';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Plus } from 'lucide-react';
 
 interface TableCell {
   row: number;
@@ -34,19 +34,35 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [pendingChanges, setPendingChanges] = useState<Record<string, TableCell>>({});
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Initialize table with default size
-  const ROWS = 10;
-  const COLS = 5;
+  // Initialize table with default size - now editable
+  const [rows, setRows] = useState(10);
+  const [cols, setCols] = useState(5);
 
   const getCellKey = (row: number, col: number) => `${row}-${col}`;
+
+  // Add row function
+  const addRow = () => {
+    setRows(prev => prev + 1);
+    toast({ title: "Row added", description: "New row has been added to the table" });
+  };
+
+  // Add column function
+  const addColumn = () => {
+    setCols(prev => prev + 1);
+    toast({ title: "Column added", description: "New column has been added to the table" });
+  };
 
   // Load data from Supabase
   const loadTableData = useCallback(async () => {
     if (!isOnline) {
       const savedCells = offlineData.cells || {};
       const savedPending = offlineData.pendingChanges || {};
+      const savedRows = offlineData.rows || 10;
+      const savedCols = offlineData.cols || 5;
       setCells(savedCells);
       setPendingChanges(savedPending);
+      setRows(savedRows);
+      setCols(savedCols);
       return;
     }
 
@@ -59,6 +75,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       if (error) throw error;
 
       const cellData: Record<string, TableCell> = {};
+      let maxRow = rows - 1;
+      let maxCol = cols - 1;
+
       data?.forEach((item) => {
         const key = getCellKey(item.row_index, item.column_index);
         cellData[key] = {
@@ -68,14 +87,19 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           version: item.version,
           lastModifiedBy: item.last_modified_by || undefined,
         };
+        maxRow = Math.max(maxRow, item.row_index);
+        maxCol = Math.max(maxCol, item.column_index);
       });
 
+      // Update table dimensions based on data
+      setRows(maxRow + 1);
+      setCols(maxCol + 1);
       setCells(cellData);
-      saveOfflineData({ ...offlineData, cells: cellData });
+      saveOfflineData({ ...offlineData, cells: cellData, rows: maxRow + 1, cols: maxCol + 1 });
     } catch (error: any) {
       toast({ title: "Error loading table", description: error.message, variant: "destructive" });
     }
-  }, [tableId, isOnline, offlineData, saveOfflineData, toast]);
+  }, [tableId, isOnline, offlineData, saveOfflineData, toast, rows, cols]);
 
   // Update cell value
   const updateCell = async (row: number, col: number, value: string) => {
@@ -148,7 +172,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         saveOfflineData({ 
           ...offlineData, 
           cells: updatedCells,
-          pendingChanges: newPendingChanges
+          pendingChanges: newPendingChanges,
+          rows,
+          cols
         });
       } catch (error: any) {
         console.error('Error saving to Supabase:', error);
@@ -161,7 +187,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         saveOfflineData({ 
           ...offlineData, 
           cells: updatedCells,
-          pendingChanges: newPendingChanges
+          pendingChanges: newPendingChanges,
+          rows,
+          cols
         });
         
         toast({ title: "Saved offline", description: "Will sync when connection is restored" });
@@ -176,7 +204,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       saveOfflineData({ 
         ...offlineData, 
         cells: updatedCells,
-        pendingChanges: newPendingChanges
+        pendingChanges: newPendingChanges,
+        rows,
+        cols
       });
     }
   };
@@ -310,7 +340,9 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     saveOfflineData({ 
       ...offlineData, 
       cells: cells,
-      pendingChanges: remainingPendingChanges
+      pendingChanges: remainingPendingChanges,
+      rows,
+      cols
     });
     
     // Show appropriate toast messages
@@ -328,7 +360,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     }
     
     setIsSyncing(false);
-  }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing, loadTableData]);
+  }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing, loadTableData, rows, cols]);
 
   // Sync pending changes when coming online and every 5 seconds if there are pending changes
   useEffect(() => {
@@ -481,12 +513,37 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         </div>
       </div>
 
+      {/* Add row/column buttons */}
+      <div className="flex items-center gap-2 mb-4">
+        <Button
+          onClick={addRow}
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          Add Row
+        </Button>
+        <Button
+          onClick={addColumn}
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          Add Column
+        </Button>
+        <Badge variant="secondary" className="ml-2">
+          {rows} × {cols}
+        </Badge>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full border-collapse border border-gray-300">
           <thead>
             <tr>
               <th className="border border-gray-300 p-2 bg-gray-100 w-12">#</th>
-              {Array.from({ length: COLS }, (_, colIndex) => (
+              {Array.from({ length: cols }, (_, colIndex) => (
                 <th key={colIndex} className="border border-gray-300 p-2 bg-gray-100 min-w-32">
                   {String.fromCharCode(65 + colIndex)}
                 </th>
@@ -494,12 +551,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: ROWS }, (_, rowIndex) => (
+            {Array.from({ length: rows }, (_, rowIndex) => (
               <tr key={rowIndex}>
                 <td className="border border-gray-300 p-2 bg-gray-100 text-center font-medium">
                   {rowIndex + 1}
                 </td>
-                {Array.from({ length: COLS }, (_, colIndex) => {
+                {Array.from({ length: cols }, (_, colIndex) => {
                   const key = getCellKey(rowIndex, colIndex);
                   const cell = cells[key];
                   const isEditing = editingCell === key;
