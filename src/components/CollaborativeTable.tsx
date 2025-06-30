@@ -301,6 +301,11 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       // Update pending changes with only the truly failed ones
       setPendingChanges(remainingPendingChanges);
       
+      // After sync, reload the table data to get the latest state from database
+      if (syncedCount > 0) {
+        await loadTableData();
+      }
+      
       // Update offline storage
       saveOfflineData({ 
         ...offlineData, 
@@ -331,7 +336,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       const timeoutId = setTimeout(syncPendingChanges, 1000);
       return () => clearTimeout(timeoutId);
     }
-  }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing]);
+  }, [isOnline, pendingChanges, tableId, user?.id, toast, cells, offlineData, saveOfflineData, isSyncing, loadTableData]);
 
   // Set up real-time subscriptions
   useEffect(() => {
