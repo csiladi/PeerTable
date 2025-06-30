@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineStorage } from '@/hooks/useOfflineStorage';
@@ -29,6 +29,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   
   const [cells, setCells] = useState<Record<string, TableCell>>({});
   const [activeUsers, setActiveUsers] = useState<string[]>([]);
+  const [userSelections, setUserSelections] = useState<Record<string, { row: number; col: number }>>({});
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const [pendingChanges, setPendingChanges] = useState<Record<string, TableCell>>({});
@@ -230,11 +231,23 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   };
 
   // Handle cell editing start
-  const startEditing = (row: number, col: number) => {
+  const startEditing = async (row: number, col: number) => {
     const key = getCellKey(row, col);
     const currentValue = cells[key]?.value || '';
     setEditingCell(key);
     setEditingValue(currentValue);
+    // Broadcast selected cell to Supabase
+    if (isOnline && user) {
+      try {
+        await supabase
+          .from('table_users')
+          .update({ cursor_position: { selectedCell: { row, col } } })
+          .eq('table_id', tableId)
+          .eq('user_id', user.id);
+      } catch (e) {
+        // ignore
+      }
+    }
   };
 
   // Handle cell editing finish
@@ -251,12 +264,32 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     
     setEditingCell(null);
     setEditingValue('');
+    // Clear selected cell
+    if (isOnline && user) {
+      try {
+        await supabase
+          .from('table_users')
+          .update({ cursor_position: null })
+          .eq('table_id', tableId)
+          .eq('user_id', user.id);
+      } catch (e) {
+        // ignore
+      }
+    }
   };
 
   // Handle escape key
   const cancelEditing = () => {
     setEditingCell(null);
     setEditingValue('');
+    // Clear selected cell
+    if (isOnline && user) {
+      supabase
+        .from('table_users')
+        .update({ cursor_position: null })
+        .eq('table_id', tableId)
+        .eq('user_id', user.id);
+    }
   };
 
   // Sync pending changes when back online
@@ -495,16 +528,37 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       try {
         const { data, error } = await supabase
           .from('table_users')
-          .select('user_id, last_seen')
+          .select('user_id, last_seen, cursor_position')
           .eq('table_id', tableId);
         if (!error && data) {
           // Consider users active if last_seen is within the last 35 seconds
           const now = Date.now();
-          const active = data.filter(u => {
+          const active: string[] = [];
+          const selections: Record<string, { row: number; col: number }> = {};
+          data.forEach(u => {
             const lastSeen = new Date(u.last_seen).getTime();
-            return now - lastSeen < 35000;
-          }).map(u => u.user_id);
+            if (now - lastSeen < 35000) {
+              active.push(u.user_id);
+              // Type guard for cursor_position
+              function isSelectedCell(pos: unknown): pos is { selectedCell: { row: number; col: number } } {
+                return (
+                  typeof pos === 'object' &&
+                  pos !== null &&
+                  !Array.isArray(pos) &&
+                  typeof (pos as { selectedCell?: unknown }).selectedCell === 'object' &&
+                  (pos as { selectedCell?: unknown }).selectedCell !== null &&
+                  typeof (pos as { selectedCell: { row?: unknown; col?: unknown } }).selectedCell.row === 'number' &&
+                  typeof (pos as { selectedCell: { row?: unknown; col?: unknown } }).selectedCell.col === 'number'
+                );
+              }
+              const pos = u.cursor_position;
+              if (isSelectedCell(pos)) {
+                selections[u.user_id] = pos.selectedCell;
+              }
+            }
+          });
           setActiveUsers(active);
+          setUserSelections(selections);
         }
       } catch (error) {
         console.error('Error fetching active users:', error);
@@ -540,6 +594,23 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       supabase.removeChannel(channel);
     };
   }, [tableId, user, isOnline]);
+
+  // Assign a random color to each user for their popup
+  const userColors = useMemo(() => {
+    const colors = [
+      'bg-red-500', 'bg-green-500', 'bg-blue-500', 'bg-yellow-500', 'bg-pink-500',
+      'bg-purple-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500', 'bg-cyan-500',
+    ];
+    const map: Record<string, string> = {};
+    let i = 0;
+    activeUsers.forEach(uid => {
+      if (!map[uid]) {
+        map[uid] = colors[i % colors.length];
+        i++;
+      }
+    });
+    return map;
+  }, [activeUsers]);
 
   return (
     <div className="p-6">
@@ -635,9 +706,25 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                   const cell = cells[key];
                   const isEditing = editingCell === key;
                   const isPending = key in pendingChanges;
-                  
+                  // Find if any other user is editing this cell
+                  const popups = Object.entries(userSelections)
+                    .filter(([uid, selected]) =>
+                      uid !== user?.id && selected.row === rowIndex && selected.col === colIndex
+                    );
                   return (
-                    <td key={colIndex} className={`border border-gray-300 p-0 ${isPending ? 'bg-yellow-50' : ''}`}>
+                    <td key={colIndex} className={`relative border border-gray-300 p-0 ${isPending ? 'bg-yellow-50' : ''}`}>
+                      {/* Popups for other users editing this cell */}
+                      {popups.map(([uid]) => (
+                        <div
+                          key={uid}
+                          className="absolute top-0 left-1/2 -translate-x-1/2 mt-1 flex items-center z-10"
+                        >
+                          <span className={`w-5 h-5 rounded-full ${userColors[uid]} border-2 border-white shadow mr-1`}></span>
+                          <span className="text-xs font-semibold bg-white px-2 py-0.5 rounded shadow border border-gray-200">
+                            {uid.slice(0, 6)}
+                          </span>
+                        </div>
+                      ))}
                       {isEditing ? (
                         <Input
                           value={editingValue}
