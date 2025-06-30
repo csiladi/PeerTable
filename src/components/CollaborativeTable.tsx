@@ -22,6 +22,13 @@ interface Props {
   tableName: string;
 }
 
+type TableUserRow = {
+  user_id: string;
+  last_seen: string;
+  username?: string;
+  cursor_position?: unknown;
+};
+
 export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -34,6 +41,8 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [editingValue, setEditingValue] = useState<string>('');
   const [pendingChanges, setPendingChanges] = useState<Record<string, TableCell>>({});
   const [isSyncing, setIsSyncing] = useState(false);
+  const [userInfo, setUserInfo] = useState<Record<string, { username: string }>>({});
+  const [showUserTooltip, setShowUserTooltip] = useState(false);
 
   // Initialize table with default size - now editable
   const [rows, setRows] = useState(10);
@@ -528,37 +537,45 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       try {
         const { data, error } = await supabase
           .from('table_users')
-          .select('user_id, last_seen, cursor_position')
+          .select('user_id, last_seen, cursor_position, username')
           .eq('table_id', tableId);
-        if (!error && data) {
+        if (!error && Array.isArray(data)) {
           // Consider users active if last_seen is within the last 35 seconds
           const now = Date.now();
           const active: string[] = [];
           const selections: Record<string, { row: number; col: number }> = {};
-          data.forEach(u => {
-            const lastSeen = new Date(u.last_seen).getTime();
-            if (now - lastSeen < 35000) {
-              active.push(u.user_id);
-              // Type guard for cursor_position
-              function isSelectedCell(pos: unknown): pos is { selectedCell: { row: number; col: number } } {
-                return (
-                  typeof pos === 'object' &&
-                  pos !== null &&
-                  !Array.isArray(pos) &&
-                  typeof (pos as { selectedCell?: unknown }).selectedCell === 'object' &&
-                  (pos as { selectedCell?: unknown }).selectedCell !== null &&
-                  typeof (pos as { selectedCell: { row?: unknown; col?: unknown } }).selectedCell.row === 'number' &&
-                  typeof (pos as { selectedCell: { row?: unknown; col?: unknown } }).selectedCell.col === 'number'
-                );
-              }
-              const pos = u.cursor_position;
-              if (isSelectedCell(pos)) {
-                selections[u.user_id] = pos.selectedCell;
+          const info: Record<string, { username: string }> = {};
+          data.forEach(row => {
+            if (isTableUserRow(row)) {
+              const u = row;
+              const lastSeen = new Date(u.last_seen).getTime();
+              if (now - lastSeen < 35000) {
+                const userId = u.user_id;
+                const username = u.username;
+                active.push(userId);
+                info[userId] = { username: username || userId.slice(0, 6) };
+                // Type guard for cursor_position
+                function isSelectedCell(pos: unknown): pos is { selectedCell: { row: number; col: number } } {
+                  return (
+                    typeof pos === 'object' &&
+                    pos !== null &&
+                    !Array.isArray(pos) &&
+                    typeof (pos as { selectedCell?: unknown }).selectedCell === 'object' &&
+                    (pos as { selectedCell?: unknown }).selectedCell !== null &&
+                    typeof (pos as { selectedCell: { row?: unknown; col?: unknown } }).selectedCell.row === 'number' &&
+                    typeof (pos as { selectedCell: { row?: unknown; col?: unknown } }).selectedCell.col === 'number'
+                  );
+                }
+                const pos = u.cursor_position;
+                if (isSelectedCell(pos)) {
+                  selections[userId] = pos.selectedCell;
+                }
               }
             }
           });
           setActiveUsers(active);
           setUserSelections(selections);
+          setUserInfo(info);
         }
       } catch (error) {
         console.error('Error fetching active users:', error);
@@ -616,10 +633,28 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">{tableName}</h1>
-        <div className="flex-1 text-center">
+        <div className="flex-1 text-center relative">
           {activeUsers.length > 1 ? (
-            <span className="text-sm text-indigo-700 font-medium bg-indigo-50 rounded px-3 py-1">
+            <span
+              className="text-sm text-indigo-700 font-medium bg-indigo-50 rounded px-3 py-1 cursor-pointer"
+              onMouseEnter={() => setShowUserTooltip(true)}
+              onMouseLeave={() => setShowUserTooltip(false)}
+            >
               {activeUsers.length} people are editing this table
+              {showUserTooltip && (
+                <div className="absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 bg-white border border-gray-200 rounded shadow-lg px-4 py-2 text-left min-w-[180px]">
+                  <div className="font-semibold text-xs text-gray-500 mb-1">Currently editing:</div>
+                  <ul className="text-sm">
+                    {activeUsers.filter(uid => uid !== user?.id).map(uid => (
+                      <li key={uid} className="py-0.5">
+                        <span className={`inline-block w-2 h-2 rounded-full mr-2 align-middle ${userColors[uid]}`}></span>
+                        {userInfo[uid]?.username || uid.slice(0, 6)}
+                      </li>
+                    ))}
+                    <li className="py-0.5 text-indigo-700 font-semibold">You</li>
+                  </ul>
+                </div>
+              )}
             </span>
           ) : activeUsers.length === 1 ? (
             <span className="text-sm text-gray-500 font-medium bg-gray-50 rounded px-3 py-1">
@@ -721,7 +756,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                         >
                           <span className={`w-5 h-5 rounded-full ${userColors[uid]} border-2 border-white shadow mr-1`}></span>
                           <span className="text-xs font-semibold bg-white px-2 py-0.5 rounded shadow border border-gray-200">
-                            {uid.slice(0, 6)}
+                            {userInfo[uid]?.username || uid.slice(0, 6)}
                           </span>
                         </div>
                       ))}
@@ -760,3 +795,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     </div>
   );
 };
+
+function isTableUserRow(row: unknown): row is TableUserRow {
+  return (
+    typeof row === 'object' &&
+    row !== null &&
+    'user_id' in row && typeof ((row as unknown) as TableUserRow).user_id === 'string' &&
+    'last_seen' in row && typeof ((row as unknown) as TableUserRow).last_seen === 'string'
+  );
+}
