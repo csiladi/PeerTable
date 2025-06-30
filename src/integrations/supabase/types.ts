@@ -81,6 +81,7 @@ export type Database = {
           last_seen: string
           table_id: string
           user_id: string
+          has_pending?: boolean
         }
         Insert: {
           cursor_position?: Json | null
@@ -88,6 +89,7 @@ export type Database = {
           last_seen?: string
           table_id: string
           user_id: string
+          has_pending?: boolean
         }
         Update: {
           cursor_position?: Json | null
@@ -95,6 +97,7 @@ export type Database = {
           last_seen?: string
           table_id?: string
           user_id?: string
+          has_pending?: boolean
         }
         Relationships: [
           {

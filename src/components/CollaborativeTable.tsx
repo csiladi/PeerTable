@@ -8,6 +8,17 @@ import { useToast } from '@/hooks/use-toast';
 import { Tables } from '@/integrations/supabase/types';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, Plus, Minus } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+
+/*
+@keyframes flash {
+  0% { background-color: #dbeafe; }
+  100% { background-color: inherit; }
+}
+.animate-flash {
+  animation: flash 1s;
+}
+*/
 
 interface TableCell {
   row: number;
@@ -15,6 +26,7 @@ interface TableCell {
   value: string;
   version: number;
   lastModifiedBy?: string;
+  lastModifiedAt?: string;
 }
 
 interface Props {
@@ -44,6 +56,11 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [userInfo, setUserInfo] = useState<Record<string, { username: string; hasPending?: boolean }>>({});
   const [showUserTooltip, setShowUserTooltip] = useState(false);
+  const [lastServerModification, setLastServerModification] = useState<string | null>(null);
+  const [lastLocalModification, setLastLocalModification] = useState<string | null>(null);
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [serverCellsSnapshot, setServerCellsSnapshot] = useState<Record<string, TableCell>>({});
+  const [recentlySyncedCells, setRecentlySyncedCells] = useState<Set<string>>(new Set());
 
   // Initialize table with default size - now editable
   const [rows, setRows] = useState(10);
@@ -135,8 +152,19 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     }
   };
 
+  // Helper to get max last_modified_at from cells
+  const getMaxLastModifiedAt = (data: TableCell[]): string | null => {
+    if (!data || data.length === 0) return null;
+    return data.reduce((max: string, item: TableCell) => {
+      if (item.lastModifiedAt && (!max || item.lastModifiedAt > max)) {
+        return item.lastModifiedAt;
+      }
+      return max;
+    }, '');
+  };
+
   // Load data from Supabase
-  const loadTableData = useCallback(async () => {
+  const loadTableData = useCallback(async (forUpdateCheck = false) => {
     if (!isOnline) {
       const savedCells = offlineData.cells || {};
       const savedPending = offlineData.pendingChanges || {};
@@ -147,21 +175,24 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       setPendingChanges(savedPending);
       setRows(savedRows);
       setCols(savedCols);
+      // Track last local modification
+      let maxLocal: string | null = null;
+      if (offlineData.cells) {
+        maxLocal = getMaxLastModifiedAt(Object.values(offlineData.cells) as TableCell[]);
+      }
+      setLastLocalModification(maxLocal);
       return;
     }
-
     try {
       const { data, error } = await supabase
         .from('table_data')
         .select('*')
         .eq('table_id', tableId);
-
       if (error) throw error;
-
       const cellData: Record<string, TableCell> = {};
       let maxRow = rows - 1;
       let maxCol = cols - 1;
-
+      let maxServer: string | null = null;
       data?.forEach((item) => {
         const key = getCellKey(item.row_index, item.column_index);
         cellData[key] = {
@@ -170,18 +201,24 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           value: item.value || '',
           version: item.version,
           lastModifiedBy: item.last_modified_by || undefined,
+          lastModifiedAt: item.last_modified_at,
         };
         maxRow = Math.max(maxRow, item.row_index);
         maxCol = Math.max(maxCol, item.column_index);
+        if (item.last_modified_at && (!maxServer || item.last_modified_at > maxServer)) {
+          maxServer = item.last_modified_at;
+        }
       });
-
+      setLastServerModification(maxServer);
+      setServerCellsSnapshot(cellData);
       // Only grow, never shrink
       if (maxRow + 1 > rows) setRows(maxRow + 1);
       if (maxCol + 1 > cols) setCols(maxCol + 1);
-
       setCells(cellData);
       setRows(Math.max(rows, maxRow + 1));
       setCols(Math.max(cols, maxCol + 1));
+      // If this is for update check, don't overwrite local state
+      if (forUpdateCheck) return { maxServer, cellData };
     } catch (error: unknown) {
       const err = error as Error;
       toast({ title: "Error loading table", description: err.message, variant: "destructive" });
@@ -368,16 +405,17 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     let syncedCount = 0;
     let failedCount = 0;
     const remainingPendingChanges: Record<string, TableCell> = {};
+    const updatedCellKeys: string[] = [];
     
     console.log('Starting sync of pending changes:', Object.keys(pendingChanges).length);
     
     // Process each pending change sequentially to avoid conflicts
     for (const [key, cell] of Object.entries(pendingChanges)) {
       try {
-        // Use the same logic as updateCell for consistency
+        // Fetch the server's last_modified_at for this cell
         const { data: existingData, error: checkError } = await supabase
           .from('table_data')
-          .select('id, version')
+          .select('id, version, last_modified_at, value')
           .eq('table_id', tableId)
           .eq('row_index', cell.row)
           .eq('column_index', cell.col)
@@ -388,31 +426,47 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         }
 
         let syncError;
+        let shouldUpdate = true;
         if (existingData) {
-          // Record exists, update it with proper version handling
-          const { error } = await supabase
-            .from('table_data')
-            .update({
-              value: cell.value,
-              last_modified_by: user?.id,
-              version: Math.max(cell.version, existingData.version + 1),
-              last_modified_at: new Date().toISOString(),
-            })
-            .eq('id', existingData.id);
-          syncError = error;
-        } else {
-          // Record doesn't exist, insert it
-          const { error } = await supabase
-            .from('table_data')
-            .insert({
-              table_id: tableId,
-              row_index: cell.row,
-              column_index: cell.col,
-              value: cell.value,
-              last_modified_by: user?.id,
-              version: cell.version,
-            });
-          syncError = error;
+          // Compare timestamps
+          const serverTime = existingData.last_modified_at ? new Date(existingData.last_modified_at).getTime() : 0;
+          const localTime = cell.lastModifiedAt ? new Date(cell.lastModifiedAt).getTime() : 0;
+          if (serverTime > localTime) {
+            // Server is newer, skip update and remove from pending
+            shouldUpdate = false;
+            syncedCount++;
+          }
+        }
+        if (shouldUpdate) {
+          if (existingData) {
+            // Record exists, update it with proper version handling
+            const { error } = await supabase
+              .from('table_data')
+              .update({
+                value: cell.value,
+                last_modified_by: user?.id,
+                version: Math.max(cell.version, existingData.version + 1),
+                last_modified_at: cell.lastModifiedAt || new Date().toISOString(),
+              })
+              .eq('id', existingData.id);
+            syncError = error;
+          } else {
+            // Record doesn't exist, insert it
+            const { error } = await supabase
+              .from('table_data')
+              .insert({
+                table_id: tableId,
+                row_index: cell.row,
+                column_index: cell.col,
+                value: cell.value,
+                last_modified_by: user?.id,
+                version: cell.version,
+                last_modified_at: cell.lastModifiedAt || new Date().toISOString(),
+              });
+            syncError = error;
+          }
+          // Mark this cell as recently updated
+          updatedCellKeys.push(key);
         }
 
         if (syncError) {
@@ -430,10 +484,8 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           console.log('Successfully synced cell:', key);
           syncedCount++;
         }
-        
         // Add small delay between operations to prevent overwhelming the database
         await new Promise(resolve => setTimeout(resolve, 50));
-        
       } catch (error: unknown) {
         console.error('Exception syncing cell:', key, error);
         // Don't keep retrying if it's a duplicate key constraint
@@ -446,7 +498,21 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         }
       }
     }
-    
+    // Flash updated cells
+    if (updatedCellKeys.length > 0) {
+      setRecentlySyncedCells(prev => {
+        const newSet = new Set(prev);
+        updatedCellKeys.forEach(k => newSet.add(k));
+        return newSet;
+      });
+      setTimeout(() => {
+        setRecentlySyncedCells(prev => {
+          const newSet = new Set(prev);
+          updatedCellKeys.forEach(k => newSet.delete(k));
+          return newSet;
+        });
+      }, 1000); // 1s flash
+    }
     // Update pending changes with only the truly failed ones
     setPendingChanges(remainingPendingChanges);
     
@@ -646,7 +712,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     const presenceInterval = setInterval(() => {
       trackPresence();
       fetchActiveUsers();
-    }, 15000); // Update every 15 seconds
+    }, 5000); // Update every 15 seconds
 
     // Subscribe to realtime changes in table_users
     const channel = supabase
@@ -671,16 +737,70 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     };
   }, [tableId, user, isOnline]);
 
+  // Helper to ensure a table_users row exists for the current user
+  const ensureUserRow = async () => {
+    if (!user) return;
+    try {
+      // Try to update last_seen (if row exists)
+      const { data, error: updateError } = await supabase
+        .from('table_users')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('table_id', tableId)
+        .eq('user_id', user.id)
+        .select();
+      // If no row, insert
+      if (!updateError && (!data || data.length === 0)) {
+        const { error: insertError } = await supabase
+          .from('table_users')
+          .insert({
+            table_id: tableId,
+            user_id: user.id,
+            last_seen: new Date().toISOString(),
+          });
+        if (insertError && !insertError.message?.includes('duplicate key')) {
+          console.error('Error inserting user row for has_pending:', insertError);
+        }
+      } else if (updateError) {
+        console.error('Error updating user row for has_pending:', updateError);
+      }
+    } catch (err) {
+      console.error('Exception in ensureUserRow:', err);
+    }
+  };
+
   // Broadcast has_pending to other users when pendingChanges changes
   useEffect(() => {
     if (!isOnline || !user) return;
     const hasPending = Object.keys(pendingChanges).length > 0;
-    supabase
-      .from('table_users')
-      .update(({ has_pending: hasPending } as unknown) as Record<string, unknown>)
-      .eq('table_id', tableId)
-      .eq('user_id', user.id);
+    (async () => {
+      await ensureUserRow();
+      const { error } = await supabase
+        .from('table_users')
+        .update({ has_pending: hasPending })
+        .eq('table_id', tableId)
+        .eq('user_id', user.id);
+      if (error) {
+        console.error('Error updating has_pending:', error);
+      }
+    })();
   }, [pendingChanges, isOnline, user, tableId]);
+
+  // Also update has_pending when coming back online if there are pending changes
+  useEffect(() => {
+    if (!isOnline || !user) return;
+    if (Object.keys(pendingChanges).length === 0) return;
+    (async () => {
+      await ensureUserRow();
+      const { error } = await supabase
+        .from('table_users')
+        .update({ has_pending: true })
+        .eq('table_id', tableId)
+        .eq('user_id', user.id);
+      if (error) {
+        console.error('Error updating has_pending (online effect):', error);
+      }
+    })();
+  }, [isOnline, user, tableId, pendingChanges]);
 
   // Assign a random color to each user for their popup
   const userColors = useMemo(() => {
@@ -739,6 +859,34 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingChanges, cells, rows, cols, offlineData]);
+
+  // When coming back online, check for server changes
+  useEffect(() => {
+    if (!isOnline) return;
+    let didShow = false;
+    const checkForServerUpdates = async () => {
+      // Only check if we have local offline data
+      if (!offlineData.cells || Object.keys(offlineData.cells).length === 0) return;
+      // Get last local modification
+      let maxLocal: string | null = null;
+      if (offlineData.cells) {
+        maxLocal = getMaxLastModifiedAt(Object.values(offlineData.cells) as TableCell[]);
+      }
+      setLastLocalModification(maxLocal);
+      // Fetch server data for update check
+      const { maxServer, cellData } = await loadTableData(true) || {};
+      setLastServerModification(maxServer);
+      // If server has newer data, update and show toast
+      if (maxServer && maxLocal && maxServer > maxLocal && !didShow) {
+        setCells(cellData || {});
+        toast({ title: "Table updated", description: "Table was updated with the latest server data while you were offline." });
+        didShow = true;
+      }
+    };
+    checkForServerUpdates();
+    // Only run once when coming online
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
 
   return (
     <div className="p-6">
@@ -875,13 +1023,14 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                   const cell = displayedCells[key];
                   const isEditing = editingCell === key;
                   const isPending = key in pendingChanges;
+                  const isRecentlySynced = recentlySyncedCells.has(key);
                   // Find if any other user is editing this cell
                   const popups = Object.entries(userSelections)
                     .filter(([uid, selected]) =>
                       uid !== user?.id && selected.row === rowIndex && selected.col === colIndex
                     );
                   return (
-                    <td key={colIndex} className={`relative border border-gray-300 p-0 ${isPending ? 'bg-yellow-50' : ''}`}>
+                    <td key={colIndex} className={`relative border border-gray-300 p-0 ${isPending ? 'bg-yellow-50' : ''} ${isRecentlySynced ? 'bg-blue-100 animate-flash' : ''}`}>
                       {/* Popups for other users editing this cell */}
                       {popups.map(([uid]) => (
                         <div
