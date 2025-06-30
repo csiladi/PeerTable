@@ -1025,7 +1025,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         </div>
       </div>
 
-      {/* Add/remove row/column buttons */}
+      {/* Add/remove row/column buttons and Table History */}
       <div className="flex items-center gap-2 mb-4">
         <Button
           onClick={addRow}
@@ -1068,14 +1068,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         <Badge variant="secondary" className="ml-2">
           {rows} × {cols}
         </Badge>
-      </div>
-
-      {/* Table History Button and Modal */}
-      <div className="flex justify-end mb-2">
+        <div className="flex-1" />
         <Button variant="outline" onClick={() => { setShowHistory(true); fetchTableHistory(); }}>
           Table History
         </Button>
       </div>
+
       <Dialog open={showHistory} onOpenChange={setShowHistory}>
         <DialogContent className="max-w-2xl bg-white dark:bg-zinc-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700">
           <DialogHeader>

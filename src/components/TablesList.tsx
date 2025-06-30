@@ -20,6 +20,8 @@ export const TablesList = ({ onSelectTable }: Props) => {
   const [loading, setLoading] = useState(true);
   const [newTableName, setNewTableName] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [deletingTableId, setDeletingTableId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const loadTables = async () => {
     try {
@@ -53,11 +55,34 @@ export const TablesList = ({ onSelectTable }: Props) => {
       if (error) throw error;
 
       setTables(prev => [data, ...prev]);
+      if (user?.id && user?.email) {
+        const username = user.email.split('@')[0];
+        await supabase.from('table_users').insert({
+          table_id: data.id,
+          user_id: user.id,
+          username,
+          last_seen: new Date().toISOString(),
+        });
+      }
       setNewTableName('');
       setCreateDialogOpen(false);
       toast({ title: "Table created successfully!" });
     } catch (error: unknown) {
       toast({ title: "Error creating table", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+    }
+  };
+
+  const handleDeleteTable = async (tableId: string) => {
+    try {
+      const { error } = await supabase.from('peer_tables').delete().eq('id', tableId);
+      if (error) throw error;
+      setTables(prev => prev.filter(t => t.id !== tableId));
+      toast({ title: 'Table deleted successfully!' });
+    } catch (error: unknown) {
+      toast({ title: 'Error deleting table', description: error instanceof Error ? error.message : String(error), variant: 'destructive' });
+    } finally {
+      setShowDeleteDialog(false);
+      setDeletingTableId(null);
     }
   };
 
@@ -123,7 +148,7 @@ export const TablesList = ({ onSelectTable }: Props) => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {tables.map((table) => (
-            <Card key={table.id} className="cursor-pointer hover:shadow-md transition-shadow bg-white dark:bg-zinc-800 border border-gray-200 dark:border-gray-700 group">
+            <Card key={table.id} className="relative hover:shadow-md transition-shadow bg-white dark:bg-zinc-800 border border-gray-200 dark:border-gray-700 group">
               <CardHeader>
                 <CardTitle className="text-lg text-gray-900 dark:text-gray-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                   {table.name}
@@ -133,12 +158,49 @@ export const TablesList = ({ onSelectTable }: Props) => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button 
-                  className="w-full"
-                  onClick={() => onSelectTable(table.id, table.name)}
-                >
-                  Open Table
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    className="flex-1"
+                    onClick={async () => {
+                      if (user?.id && user?.email) {
+                        // Check if user has a username for this table
+                        const { data: userRow, error } = await supabase
+                          .from('table_users')
+                          .select('id, username')
+                          .eq('table_id', table.id)
+                          .eq('user_id', user.id)
+                          .maybeSingle();
+                        if (userRow && typeof userRow === 'object' && 'username' in userRow && userRow.username) {
+                          // already has username, do nothing
+                        } else if (user?.id && user?.email) {
+                          const username = user.email.split('@')[0];
+                          if (userRow && 'id' in userRow) {
+                            await supabase.from('table_users').update({ username }).eq('id', userRow.id);
+                          } else {
+                            await supabase.from('table_users').insert({
+                              table_id: table.id,
+                              user_id: user.id,
+                              username,
+                              last_seen: new Date().toISOString(),
+                            });
+                          }
+                        }
+                      }
+                      onSelectTable(table.id, table.name);
+                    }}
+                  >
+                    Open Table
+                  </Button>
+                  <Button 
+                    variant="destructive"
+                    size="icon"
+                    title="Delete table"
+                    onClick={() => { setDeletingTableId(table.id); setShowDeleteDialog(true); }}
+                  >
+                    <span className="sr-only">Delete</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -183,6 +245,26 @@ export const TablesList = ({ onSelectTable }: Props) => {
             </Dialog>
           </div>
         )}
+
+        {/* Delete confirmation dialog */}
+        <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete Table</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this table? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={() => deletingTableId && handleDeleteTable(deletingTableId)}>
+                Delete
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
