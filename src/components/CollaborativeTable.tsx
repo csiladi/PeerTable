@@ -854,19 +854,24 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
     })();
   }, [isOnline, user, tableId, pendingChanges]);
 
-  // Assign a random color to each user for their popup
+  // Assign a consistent color to each user based on their user_id
   const userColors = useMemo(() => {
     const colors = [
       'bg-red-500', 'bg-green-500', 'bg-blue-500', 'bg-yellow-500', 'bg-pink-500',
       'bg-purple-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500', 'bg-cyan-500',
     ];
-    const map: Record<string, string> = {};
-    let i = 0;
-    activeUsers.forEach(uid => {
-      if (!map[uid]) {
-        map[uid] = colors[i % colors.length];
-        i++;
+    // Simple hash function for user_id
+    function hashString(str: string) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0; // Convert to 32bit integer
       }
+      return Math.abs(hash);
+    }
+    const map: Record<string, string> = {};
+    activeUsers.forEach(uid => {
+      map[uid] = colors[hashString(uid) % colors.length];
     });
     return map;
   }, [activeUsers]);
@@ -1152,11 +1157,20 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                       {popups.map(([uid]) => (
                         <div
                           key={uid}
-                          className="absolute top-0 left-1/2 -translate-x-1/2 mt-1 flex items-center z-10"
+                          className="absolute top-1/2 right-1 -translate-y-1/2 z-10 flex items-center"
+                          style={{ pointerEvents: 'none' }}
                         >
-                          <span className={`w-5 h-5 rounded-full ${userColors[uid]} border-2 border-white dark:border-zinc-900 shadow mr-1`}></span>
-                          <span className="text-xs font-semibold bg-white dark:bg-zinc-800 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded shadow border border-gray-200 dark:border-gray-700">
-                            {userInfo[uid]?.username || uid.slice(0, 6)}
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-xs font-semibold shadow border border-gray-200 dark:border-gray-700 flex items-center gap-1 ${userColors[uid]} text-white`}
+                            style={{ minWidth: 32, maxWidth: 120, whiteSpace: 'nowrap' }}
+                          >
+                            {userInfo[uid]?.username ? userInfo[uid]?.username : uid.slice(0, 6)}
+                            {/* Optional: Animated typing dots */}
+                            <span className="ml-1 inline-block align-middle">
+                              <span className="inline-block w-1 h-1 bg-white/80 rounded-full animate-bounce [animation-delay:0s]"></span>
+                              <span className="inline-block w-1 h-1 bg-white/80 rounded-full mx-0.5 animate-bounce [animation-delay:0.15s]"></span>
+                              <span className="inline-block w-1 h-1 bg-white/80 rounded-full animate-bounce [animation-delay:0.3s]"></span>
+                            </span>
                           </span>
                         </div>
                       ))}
