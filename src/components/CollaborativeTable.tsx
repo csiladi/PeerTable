@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Tables } from '@/integrations/supabase/types';
 import { Badge } from '@/components/ui/badge';
-import { Sync } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 interface TableCell {
   row: number;
@@ -467,7 +467,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                   variant="outline"
                   className="flex items-center gap-2"
                 >
-                  <Sync className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
                   {isSyncing ? 'Syncing...' : 'Sync'}
                 </Button>
               )}
