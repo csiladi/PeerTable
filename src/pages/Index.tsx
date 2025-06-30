@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { Auth } from '@/components/Auth';
@@ -24,10 +23,10 @@ const AppContent = () => {
   if (selectedTable) {
     return (
       <div>
-        <div className="p-4 bg-white border-b">
+        <div className="p-4 bg-gray-100 dark:bg-zinc-800 border-b border-gray-200 dark:border-gray-700">
           <button 
             onClick={() => setSelectedTable(null)}
-            className="text-blue-600 hover:text-blue-800"
+            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
           >
             ← Back to Tables
           </button>

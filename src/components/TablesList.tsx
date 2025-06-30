@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -31,8 +30,8 @@ export const TablesList = ({ onSelectTable }: Props) => {
 
       if (error) throw error;
       setTables(data || []);
-    } catch (error: any) {
-      toast({ title: "Error loading tables", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Error loading tables", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -57,8 +56,8 @@ export const TablesList = ({ onSelectTable }: Props) => {
       setNewTableName('');
       setCreateDialogOpen(false);
       toast({ title: "Table created successfully!" });
-    } catch (error: any) {
-      toast({ title: "Error creating table", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Error creating table", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
     }
   };
 
@@ -68,19 +67,19 @@ export const TablesList = ({ onSelectTable }: Props) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-zinc-900">
+        <div className="text-lg text-gray-700 dark:text-gray-200">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen p-6 bg-gray-50">
+    <div className="min-h-screen p-6 bg-gray-50 dark:bg-zinc-900">
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 rounded-lg bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-gray-700 shadow-sm px-6 py-4">
           <div>
-            <h1 className="text-3xl font-bold">PeerTable</h1>
-            <p className="text-gray-600">Welcome, {user?.email}</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">PeerTable</h1>
+            <p className="text-gray-600 dark:text-gray-400">Welcome, {user?.email}</p>
           </div>
           <div className="flex items-center gap-2">
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
@@ -90,10 +89,10 @@ export const TablesList = ({ onSelectTable }: Props) => {
                   New Table
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-gray-700">
                 <DialogHeader>
-                  <DialogTitle>Create New Table</DialogTitle>
-                  <DialogDescription>
+                  <DialogTitle className="dark:text-gray-100">Create New Table</DialogTitle>
+                  <DialogDescription className="dark:text-gray-400">
                     Create a new collaborative table that others can join and edit.
                   </DialogDescription>
                 </DialogHeader>
@@ -103,6 +102,7 @@ export const TablesList = ({ onSelectTable }: Props) => {
                     value={newTableName}
                     onChange={(e) => setNewTableName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && createTable()}
+                    className="bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-700 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                   />
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
@@ -123,16 +123,18 @@ export const TablesList = ({ onSelectTable }: Props) => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {tables.map((table) => (
-            <Card key={table.id} className="cursor-pointer hover:shadow-md transition-shadow">
+            <Card key={table.id} className="cursor-pointer hover:shadow-md transition-shadow bg-white dark:bg-zinc-800 border border-gray-200 dark:border-gray-700 group">
               <CardHeader>
-                <CardTitle className="text-lg">{table.name}</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-lg text-gray-900 dark:text-gray-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                  {table.name}
+                </CardTitle>
+                <CardDescription className="text-gray-500 dark:text-gray-400">
                   Created {new Date(table.created_at).toLocaleDateString()}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <Button 
-                  className="w-full" 
+                  className="w-full"
                   onClick={() => onSelectTable(table.id, table.name)}
                 >
                   Open Table
@@ -144,8 +146,8 @@ export const TablesList = ({ onSelectTable }: Props) => {
 
         {tables.length === 0 && (
           <div className="text-center py-12">
-            <h2 className="text-xl font-semibold mb-2">No tables yet</h2>
-            <p className="text-gray-600 mb-4">Create your first collaborative table to get started.</p>
+            <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-gray-100">No tables yet</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">Create your first collaborative table to get started.</p>
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
               <DialogTrigger asChild>
                 <Button>
@@ -153,10 +155,10 @@ export const TablesList = ({ onSelectTable }: Props) => {
                   Create Your First Table
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-gray-700">
                 <DialogHeader>
-                  <DialogTitle>Create New Table</DialogTitle>
-                  <DialogDescription>
+                  <DialogTitle className="dark:text-gray-100">Create New Table</DialogTitle>
+                  <DialogDescription className="dark:text-gray-400">
                     Create a new collaborative table that others can join and edit.
                   </DialogDescription>
                 </DialogHeader>
@@ -166,6 +168,7 @@ export const TablesList = ({ onSelectTable }: Props) => {
                     value={newTableName}
                     onChange={(e) => setNewTableName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && createTable()}
+                    className="bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-700 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                   />
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>

@@ -965,31 +965,31 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         <div className="flex-1 text-center relative">
           {activeUsers.length > 1 ? (
             <span
-              className="text-sm text-indigo-700 font-medium bg-indigo-50 rounded px-3 py-1 cursor-pointer"
+              className="text-sm text-indigo-700 font-medium bg-indigo-50 dark:bg-indigo-900/10 dark:text-indigo-400 rounded px-3 py-1 cursor-pointer"
               onMouseEnter={() => setShowUserTooltip(true)}
               onMouseLeave={() => setShowUserTooltip(false)}
             >
               {activeUsers.length} people are editing this table
               {showUserTooltip && (
-                <div className="absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 bg-white border border-gray-200 rounded shadow-lg px-4 py-2 text-left min-w-[180px]">
-                  <div className="font-semibold text-xs text-gray-500 mb-1">Currently editing:</div>
+                <div className="absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg px-4 py-2 text-left min-w-[180px]">
+                  <div className="font-semibold text-xs text-gray-500 dark:text-gray-400 mb-1">Currently editing:</div>
                   <ul className="text-sm">
                     {activeUsers.filter(uid => uid !== user?.id).map(uid => (
                       <li key={uid} className="py-0.5 flex items-center">
                         <span className={`inline-block w-2 h-2 rounded-full mr-2 align-middle ${userColors[uid]}`}></span>
                         {userInfo[uid]?.username || uid.slice(0, 6)}
                         {userInfo[uid]?.hasPending && (
-                          <span className="ml-2 text-xs text-yellow-600 bg-yellow-100 rounded px-1 py-0.5">offline changes</span>
+                          <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/10 rounded px-1 py-0.5">offline changes</span>
                         )}
                       </li>
                     ))}
-                    <li className="py-0.5 text-indigo-700 font-semibold">You</li>
+                    <li className="py-0.5 text-indigo-700 dark:text-indigo-400 font-semibold">You</li>
                   </ul>
                 </div>
               )}
             </span>
           ) : activeUsers.length === 1 ? (
-            <span className="text-sm text-gray-500 font-medium bg-gray-50 rounded px-3 py-1">
+            <span className="text-sm text-gray-500 font-medium bg-gray-50 dark:bg-zinc-800 rounded px-3 py-1">
               You are editing this table
             </span>
           ) : null}
@@ -1077,7 +1077,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
         </Button>
       </div>
       <Dialog open={showHistory} onOpenChange={setShowHistory}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl bg-white dark:bg-zinc-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700">
           <DialogHeader>
             <DialogTitle>Table History</DialogTitle>
             <DialogDescription>
@@ -1092,24 +1092,24 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
             <div className="py-8 text-center text-gray-500">No history yet.</div>
           ) : (
             <div className="overflow-x-auto max-h-[60vh]">
-              <table className="min-w-full text-sm border">
+              <table className="min-w-full text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-zinc-900">
                 <thead>
-                  <tr className="bg-gray-100">
-                    <th className="p-2 border">Cell</th>
-                    <th className="p-2 border">Old Value</th>
-                    <th className="p-2 border">New Value</th>
-                    <th className="p-2 border">Modified By</th>
-                    <th className="p-2 border">Timestamp</th>
+                  <tr className="bg-gray-100 dark:bg-zinc-800">
+                    <th className="p-2 border border-gray-200 dark:border-gray-700">Cell</th>
+                    <th className="p-2 border border-gray-200 dark:border-gray-700">Old Value</th>
+                    <th className="p-2 border border-gray-200 dark:border-gray-700">New Value</th>
+                    <th className="p-2 border border-gray-200 dark:border-gray-700">Modified By</th>
+                    <th className="p-2 border border-gray-200 dark:border-gray-700">Timestamp</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.map((h, i) => (
-                    <tr key={i}>
-                      <td className="p-2 border font-mono">{String.fromCharCode(65 + h.column_index)}{h.row_index + 1}</td>
-                      <td className="p-2 border text-gray-500">{h.old_value ?? <span className="italic">(empty)</span>}</td>
-                      <td className="p-2 border">{h.new_value ?? <span className="italic">(empty)</span>}</td>
-                      <td className="p-2 border">{h.modified_by ? (userInfo[h.modified_by]?.username || h.modified_by.slice(0, 6)) : <span className="italic">unknown</span>}</td>
-                      <td className="p-2 border whitespace-nowrap">{new Date(h.modified_at).toLocaleString()}</td>
+                    <tr key={i} className={i % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-800'}>
+                      <td className="p-2 border border-gray-200 dark:border-gray-700 font-mono">{String.fromCharCode(65 + h.column_index)}{h.row_index + 1}</td>
+                      <td className="p-2 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">{h.old_value ?? <span className="italic">(empty)</span>}</td>
+                      <td className="p-2 border border-gray-200 dark:border-gray-700">{h.new_value ?? <span className="italic">(empty)</span>}</td>
+                      <td className="p-2 border border-gray-200 dark:border-gray-700">{h.modified_by ? (userInfo[h.modified_by]?.username || h.modified_by.slice(0, 6)) : <span className="italic">unknown</span>}</td>
+                      <td className="p-2 border border-gray-200 dark:border-gray-700 whitespace-nowrap">{new Date(h.modified_at).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1120,12 +1120,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
       </Dialog>
 
       <div className="overflow-x-auto" ref={scrollRef}>
-        <table className="w-full border-collapse border border-gray-300">
+        <table className="w-full border-collapse border border-gray-300 dark:border-gray-700 bg-white dark:bg-zinc-900 rounded-lg shadow-sm">
           <thead>
             <tr>
-              <th className="border border-gray-300 p-2 bg-gray-100 w-12">#</th>
+              <th className="border border-gray-300 dark:border-gray-700 p-2 bg-gray-100 dark:bg-zinc-800 w-12 text-gray-700 dark:text-gray-200">#</th>
               {Array.from({ length: cols }, (_, colIndex) => (
-                <th key={colIndex} className="border border-gray-300 p-2 bg-gray-100 min-w-32">
+                <th key={colIndex} className="border border-gray-300 dark:border-gray-700 p-2 bg-gray-100 dark:bg-zinc-800 min-w-32 text-gray-700 dark:text-gray-200">
                   {String.fromCharCode(65 + colIndex)}
                 </th>
               ))}
@@ -1134,7 +1134,7 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
           <tbody>
             {Array.from({ length: rows }, (_, rowIndex) => (
               <tr key={rowIndex}>
-                <td className="border border-gray-300 p-2 bg-gray-100 text-center font-medium">
+                <td className="border border-gray-300 dark:border-gray-700 p-2 bg-gray-100 dark:bg-zinc-800 text-center font-medium text-gray-700 dark:text-gray-200">
                   {rowIndex + 1}
                 </td>
                 {Array.from({ length: cols }, (_, colIndex) => {
@@ -1149,15 +1149,15 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                       uid !== user?.id && selected.row === rowIndex && selected.col === colIndex
                     );
                   return (
-                    <td key={colIndex} className={`relative border border-gray-300 p-0 ${isPending ? 'bg-yellow-50' : ''} ${isRecentlySynced ? 'bg-blue-100 animate-flash' : ''}`}>
+                    <td key={colIndex} className={`relative border border-gray-300 dark:border-gray-700 p-0 transition-colors duration-200 ${isPending ? 'bg-yellow-50 dark:bg-yellow-900/30' : ''} ${isRecentlySynced ? 'bg-blue-100 dark:bg-blue-900/40 animate-flash' : ''}`}>
                       {/* Popups for other users editing this cell */}
                       {popups.map(([uid]) => (
                         <div
                           key={uid}
                           className="absolute top-0 left-1/2 -translate-x-1/2 mt-1 flex items-center z-10"
                         >
-                          <span className={`w-5 h-5 rounded-full ${userColors[uid]} border-2 border-white shadow mr-1`}></span>
-                          <span className="text-xs font-semibold bg-white px-2 py-0.5 rounded shadow border border-gray-200">
+                          <span className={`w-5 h-5 rounded-full ${userColors[uid]} border-2 border-white dark:border-zinc-900 shadow mr-1`}></span>
+                          <span className="text-xs font-semibold bg-white dark:bg-zinc-800 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded shadow border border-gray-200 dark:border-gray-700">
                             {userInfo[uid]?.username || uid.slice(0, 6)}
                           </span>
                         </div>
@@ -1175,12 +1175,12 @@ export const CollaborativeTable = ({ tableId, tableName }: Props) => {
                               cancelEditing();
                             }
                           }}
-                          className="border-0 h-8 focus:ring-0"
+                          className="border-0 h-8 focus:ring-0 bg-white dark:bg-zinc-900 text-gray-900 dark:text-gray-100"
                           autoFocus
                         />
                       ) : (
                         <div
-                          className="min-h-8 p-2 cursor-pointer hover:bg-gray-50"
+                          className="min-h-8 p-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800/70 transition-colors duration-150 text-gray-900 dark:text-gray-100"
                           onClick={() => startEditing(rowIndex, colIndex)}
                         >
                           {cell?.value || ''}
