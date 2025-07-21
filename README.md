@@ -16,7 +16,7 @@
 - Beautiful, responsive UI with light/dark mode.
 - Change history—track and review all edits.
 
-### Mock Screenshots
+### Screenshots
 
 | Sign In / Sign Up | Table List | Real-Time Collaboration |
 |------------------|------------|------------------------|
