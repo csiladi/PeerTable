@@ -2,6 +2,30 @@
 
 **PeerTable** is a modern web application for creating and collaborating on tables in real time. Designed for teams, classrooms, and individuals, PeerTable lets multiple users edit the same table simultaneously, with seamless offline support and a beautiful, responsive UI.
 
+> 🚀 **Live Demo:** [https://peer-table.lovable.app/](https://peer-table.lovable.app/)
+
+---
+
+## 🌟 Highlights
+
+- Effortless real-time collaboration—see edits from teammates instantly.
+- Seamless offline mode—keep working even without internet, syncs when back online.
+- User presence—see who is active and where they are editing in the table.
+- Intuitive table management—create, rename, and delete tables with ease.
+- Secure authentication—sign up and sign in with email/password.
+- Beautiful, responsive UI with light/dark mode.
+- Change history—track and review all edits.
+
+### Mock Screenshots
+
+| Sign In / Sign Up | Table List | Real-Time Collaboration |
+|------------------|------------|------------------------|
+| ![Sign In Screenshot](/mock-signin.png) | ![Table List Screenshot](/mock-tablelist.png) | ![Collaboration Screenshot](/mock-collab.png) |
+
+| Offline Mode | Change History |
+|--------------|----------------|
+| ![Offline Mode Screenshot](/mock-offline.png) | ![History Screenshot](/mock-history.png) |
+
 ---
 
 ## ✨ Features
