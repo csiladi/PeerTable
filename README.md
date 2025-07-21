@@ -20,11 +20,11 @@
 
 | Sign In / Sign Up | Table List | Real-Time Collaboration |
 |------------------|------------|------------------------|
-| ![Sign In Screenshot](/mock-signin.png) | ![Table List Screenshot](/mock-tablelist.png) | ![Collaboration Screenshot](/mock-collab.png) |
+| ![Sign In Screenshot](screenshots/mock-signin.png) | ![Table List Screenshot](screenshots/mock-tablelist.png) | ![Collaboration Screenshot](screenshots/mock-collab.png) |
 
 | Offline Mode | Change History |
 |--------------|----------------|
-| ![Offline Mode Screenshot](/mock-offline.png) | ![History Screenshot](/mock-history.png) |
+| ![Offline Mode Screenshot](screenshots/mock-offline.png) | ![History Screenshot](screenshots/mock-history.png) |
 
 ---
 
