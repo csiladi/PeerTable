@@ -1,73 +1,107 @@
-# Welcome to your Lovable project
+# PeerTable: Real-Time Collaborative Tables
 
-## Project info
+**PeerTable** is a modern web application for creating and collaborating on tables in real time. Designed for teams, classrooms, and individuals, PeerTable lets multiple users edit the same table simultaneously, with seamless offline support and a beautiful, responsive UI.
 
-**URL**: https://lovable.dev/projects/2ac7c889-d553-431b-90c5-eb906bf5402e
+---
 
-## How can I edit this code?
+## ✨ Features
 
-There are several ways of editing your application.
+- **Real-Time Collaboration:** Multiple users can edit tables together, with instant updates powered by Supabase.
+- **Authentication:** Secure sign up and sign in with email and password.
+- **Table Management:** Create, select, and delete tables. Each table is private to its creator and collaborators.
+- **Cell Editing:** Click any cell to edit. Changes are synced live to all users.
+- **Offline Support:** Work offline—changes are saved locally and synced when you reconnect.
+- **User Presence:** See who else is active in your table and where they are editing.
+- **Change History:** Track and review edits made to each table.
+- **Dark Mode:** Toggle between light and dark themes for comfortable viewing.
+- **Responsive Design:** Works beautifully on desktop and mobile devices.
 
-**Use Lovable**
+---
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/2ac7c889-d553-431b-90c5-eb906bf5402e) and start prompting.
+## 🛠️ Tech Stack
 
-Changes made via Lovable will be committed automatically to this repo.
+- **React** + **TypeScript**
+- **Vite** (blazing fast dev/build)
+- **Supabase** (auth, database, real-time sync)
+- **shadcn/ui** (UI components)
+- **Tailwind CSS** (utility-first styling)
+- **@tanstack/react-query** (data fetching/caching)
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## 🚀 Getting Started
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+### 1. **Clone the Repository**
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
 git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
 cd <YOUR_PROJECT_NAME>
+```
 
-# Step 3: Install the necessary dependencies.
-npm i
+### 2. **Install Dependencies**
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```sh
+npm install
+```
+
+### 3. **Run the Development Server**
+
+```sh
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The app will be available at [http://localhost:5173](http://localhost:5173) (or as shown in your terminal).
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+---
 
-**Use GitHub Codespaces**
+## 🔐 Authentication & Environment
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- **Authentication** is handled via Supabase. Users sign up/sign in with email and password.
+- The project is pre-configured with a public Supabase instance (see `src/integrations/supabase/client.ts`).
+- **No additional environment variables are required** for local development. If you wish to use your own Supabase project, update the `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in `src/integrations/supabase/client.ts`.
 
-## What technologies are used for this project?
+---
 
-This project is built with:
+## 📦 Build & Deploy
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+To build for production:
 
-## How can I deploy this project?
+```sh
+npm run build
+```
 
-Simply open [Lovable](https://lovable.dev/projects/2ac7c889-d553-431b-90c5-eb906bf5402e) and click on Share -> Publish.
+To preview the production build locally:
 
-## Can I connect a custom domain to my Lovable project?
+```sh
+npm run preview
+```
 
-Yes, you can!
+---
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## 📝 Usage
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+1. **Sign Up / Sign In:** Create an account with your email and password.
+2. **Create a Table:** Name your table and start collaborating.
+3. **Invite Others:** Share your app URL—anyone who signs in can join and collaborate in real time.
+4. **Edit Cells:** Click any cell to edit. Changes sync instantly.
+5. **Go Offline:** You can continue working offline; your changes will sync when you reconnect.
+
+---
+
+## ⚙️ Customization & Configuration
+
+- **UI & Theme:** Easily switch between light and dark mode using the toggle in the top-right corner.
+- **Tailwind CSS:** Customize styles in `tailwind.config.ts` and `src/index.css`.
+- **Supabase:** To use your own backend, update the Supabase credentials in `src/integrations/supabase/client.ts`.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please open issues or pull requests for improvements, bug fixes, or new features.
+
+---
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
